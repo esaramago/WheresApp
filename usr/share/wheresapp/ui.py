@@ -217,7 +217,7 @@ class WheresAppWindow(Adw.ApplicationWindow):
         """Construct a responsive card widget for a search result item."""
         card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         card_box.add_css_class("card")
-        card_box.set_size_request(220, -1)
+        card_box.set_size_request(240, -1)
 
         # Inner container with margins for padding
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -282,15 +282,27 @@ class WheresAppWindow(Adw.ApplicationWindow):
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         btn_box.set_margin_top(6)
 
-        btn_open = Gtk.Button(label=self.i18n.get("btn_open"))
-        btn_open.set_icon_name("media-playback-start-symbolic")
+        # Open button with icon and label
+        btn_open = Gtk.Button()
+        btn_open_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_open_box.set_halign(Gtk.Align.CENTER)
+        btn_open_box.append(Gtk.Image.new_from_icon_name("media-playback-start-symbolic"))
+        btn_open_box.append(Gtk.Label(label=self.i18n.get("btn_open")))
+        btn_open.set_child(btn_open_box)
         btn_open.set_hexpand(True)
+        btn_open.set_tooltip_text(self.i18n.get("btn_open"))
         btn_open.connect("clicked", lambda _b, it=item: self._on_launch_clicked(it))
         btn_box.append(btn_open)
 
+        # Uninstall button with icon and label
         btn_uninstall = Gtk.Button()
-        btn_uninstall.set_icon_name("user-trash-symbolic")
+        btn_uninstall_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_uninstall_box.set_halign(Gtk.Align.CENTER)
+        btn_uninstall_box.append(Gtk.Image.new_from_icon_name("user-trash-symbolic"))
+        btn_uninstall_box.append(Gtk.Label(label=self.i18n.get("btn_uninstall")))
+        btn_uninstall.set_child(btn_uninstall_box)
         btn_uninstall.add_css_class("destructive-action")
+        btn_uninstall.set_hexpand(True)
         btn_uninstall.set_tooltip_text(self.i18n.get("btn_uninstall"))
         btn_uninstall.connect("clicked", lambda _b, it=item: self._on_uninstall_clicked(it))
         btn_box.append(btn_uninstall)
