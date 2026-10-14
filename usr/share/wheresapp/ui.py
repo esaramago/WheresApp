@@ -114,7 +114,11 @@ class WheresAppWindow(Adw.ApplicationWindow):
         header_bar = Adw.HeaderBar()
         main_box.append(header_bar)
 
-        # Search bar container
+        # Search bar container centered with Adw.Clamp
+        search_clamp = Adw.Clamp()
+        search_clamp.set_maximum_size(872)
+        search_clamp.set_tightening_threshold(872)
+
         search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         search_box.set_margin_top(12)
         search_box.set_margin_bottom(12)
@@ -132,7 +136,8 @@ class WheresAppWindow(Adw.ApplicationWindow):
         self.spinner.set_visible(False)
         search_box.append(self.spinner)
 
-        main_box.append(search_box)
+        search_clamp.set_child(search_box)
+        main_box.append(search_clamp)
 
         # View stack: empty state, not found state, results card grid
         self.stack = Gtk.Stack()
@@ -153,9 +158,13 @@ class WheresAppWindow(Adw.ApplicationWindow):
         self.not_found_page.set_title(self.i18n.get("not_found_title"))
         self.stack.add_named(self.not_found_page, "not_found")
 
-        # 3. Results card grid inside a scrolled window
+        # 3. Results card grid inside a scrolled window centered with Adw.Clamp
         self.scrolled_window = Gtk.ScrolledWindow()
         self.scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+        self.flow_clamp = Adw.Clamp()
+        self.flow_clamp.set_maximum_size(872)
+        self.flow_clamp.set_tightening_threshold(872)
 
         self.flow_box = Gtk.FlowBox()
         self.flow_box.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -164,12 +173,14 @@ class WheresAppWindow(Adw.ApplicationWindow):
         self.flow_box.set_row_spacing(12)
         self.flow_box.set_min_children_per_line(1)
         self.flow_box.set_max_children_per_line(2)
+        self.flow_box.set_halign(Gtk.Align.CENTER)
         self.flow_box.set_valign(Gtk.Align.START)
         self.flow_box.set_margin_start(16)
         self.flow_box.set_margin_end(16)
         self.flow_box.set_margin_bottom(16)
 
-        self.scrolled_window.set_child(self.flow_box)
+        self.flow_clamp.set_child(self.flow_box)
+        self.scrolled_window.set_child(self.flow_clamp)
         self.stack.add_named(self.scrolled_window, "results")
 
         self.stack.set_visible_child_name("empty")
@@ -270,6 +281,8 @@ class WheresAppWindow(Adw.ApplicationWindow):
         card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         card_box.add_css_class("card")
         card_box.set_size_request(430, 170)
+        card_box.set_halign(Gtk.Align.CENTER)
+        card_box.set_valign(Gtk.Align.START)
 
         # Inner container with margins for padding
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -365,6 +378,7 @@ class WheresAppWindow(Adw.ApplicationWindow):
         # FlowBoxChild container
         child = Gtk.FlowBoxChild()
         child.set_child(card_box)
+        child.set_halign(Gtk.Align.CENTER)
         child.set_focusable(False)
         return child
 
