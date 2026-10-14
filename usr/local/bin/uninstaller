@@ -1,0 +1,254 @@
+#!/bin/bash
+
+# Clear environment variables inherited from Snap/Flatpak applications (e.g., VS Code)
+# that may cause conflicts with host system GTK/glibc libraries when opening the terminal
+unset GTK_PATH GTK_EXE_PREFIX GTK_IM_MODULE_FILE GIO_MODULE_DIR GSETTINGS_SCHEMA_DIR GDK_PIXBUF_MODULE_FILE GDK_PIXBUF_MODULEDIR LOCPATH
+
+# Parse command line options
+REQUESTED_LANG=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --lang|-l)
+            REQUESTED_LANG="$2"
+            shift 2
+            ;;
+        --lang=*)
+            REQUESTED_LANG="${1#*=}"
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+# Determine active language:
+# 1. Command-line argument (--lang / -l)
+# 2. Environment variable (APP_LANG)
+# 3. System locale (LC_ALL, LC_MESSAGES, LANG)
+TARGET_LANG="${REQUESTED_LANG:-${APP_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-en_GB}}}}}"
+
+case "$TARGET_LANG" in
+    pt*|PT*)
+        ACTIVE_LANG="pt-PT"
+        ;;
+    *)
+        ACTIVE_LANG="en-GB"
+        ;;
+esac
+
+# Locate translations directory (supports local development, /usr/local, and system /usr)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -d "$SCRIPT_DIR/../../share/ubuntu-app-uninstaller/lang" ]; then
+    LANG_DIR="$(cd "$SCRIPT_DIR/../../share/ubuntu-app-uninstaller/lang" && pwd)"
+elif [ -d "$SCRIPT_DIR/../share/ubuntu-app-uninstaller/lang" ]; then
+    LANG_DIR="$(cd "$SCRIPT_DIR/../share/ubuntu-app-uninstaller/lang" && pwd)"
+elif [ -d "/usr/share/ubuntu-app-uninstaller/lang" ]; then
+    LANG_DIR="/usr/share/ubuntu-app-uninstaller/lang"
+elif [ -d "/usr/local/share/ubuntu-app-uninstaller/lang" ]; then
+    LANG_DIR="/usr/local/share/ubuntu-app-uninstaller/lang"
+else
+    LANG_DIR=""
+fi
+
+# Load fallback translations (en-GB) first, then target language
+if [ -n "$LANG_DIR" ] && [ -f "$LANG_DIR/en-GB.sh" ]; then
+    # shellcheck source=/dev/null
+    source "$LANG_DIR/en-GB.sh"
+fi
+
+if [ -n "$LANG_DIR" ] && [ "$ACTIVE_LANG" != "en-GB" ] && [ -f "$LANG_DIR/${ACTIVE_LANG}.sh" ]; then
+    # shellcheck source=/dev/null
+    source "$LANG_DIR/${ACTIVE_LANG}.sh"
+fi
+
+APP=""
+
+while true; do
+    # 1. Prompt for application name or search term
+    APP=$(zenity --entry --title="$TXT_TITLE" --text="$TXT_SEARCH_PROMPT" --entry-text="$APP" --ok-label="$TXT_BTN_SEARCH" --cancel-label="$TXT_BTN_CANCEL" 2>/dev/null)
+    [ $? -ne 0 ] && exit 0
+
+    # Ensure search term has at least 2 characters (ignoring leading/trailing whitespace)
+    APP_TRIM="${APP#"${APP%%[![:space:]]*}"}"
+    APP_TRIM="${APP_TRIM%"${APP_TRIM##*[![:space:]]}"}"
+    char_count=$(echo -n "$APP_TRIM" | LC_ALL=C.UTF-8 wc -m 2>/dev/null)
+    [ -z "$char_count" ] && char_count=${#APP_TRIM}
+
+    if [ "$char_count" -lt 2 ]; then
+        zenity --warning --title="$TXT_TITLE" --text="$TXT_SEARCH_MIN_CHARS" 2>/dev/null
+        continue
+    fi
+
+    APP="$APP_TRIM"
+    export APP
+
+    # 2. Search package sources (Flatpak, Snap, APT)
+    # Format output in sequential lines (Application \n Package \n Version \n Format \n System) for Zenity table
+
+    # - Flatpak: retrieve Name, Application ID, and Version
+    FLATPAK_RES=""
+    if command -v flatpak >/dev/null 2>&1; then
+        FLATPAK_RES=$(flatpak list --columns=name:f,application:f,version:f 2>/dev/null | awk -F'\t' '{
+            app_name = ($1 != "" ? $1 : "-")
+            pkg = ($2 != "" ? $2 : "-")
+            ver = ($3 != "" ? $3 : "-")
+            full = app_name " " pkg
+            if (index(tolower(full), tolower(ENVIRON["APP"])) > 0) {
+                print app_name "\n" pkg "\n" ver "\nFlatpak\n-"
+            }
+        }')
+    fi
+
+    # - Snap: retrieve Application Name (via desktop file or snap name), Package, Version, and System status
+    SNAP_RES=""
+    if command -v snap >/dev/null 2>&1; then
+        SNAP_RES=$(
+            snap list 2>/dev/null | tail -n +2 | while read -r pkg ver rest; do
+                [ -z "$pkg" ] && continue
+                desktop=$(ls /var/lib/snapd/desktop/applications/${pkg}_*.desktop /var/lib/snapd/desktop/applications/${pkg}.desktop 2>/dev/null | head -n 1)
+                app_name=""
+                if [ -n "$desktop" ] && [ -f "$desktop" ]; then
+                    app_name=$(grep -m 1 "^Name=" "$desktop" 2>/dev/null | cut -d= -f2-)
+                fi
+                [ -z "$app_name" ] && app_name="$pkg"
+                [ -z "$ver" ] && ver="-"
+                full="$app_name $pkg"
+                if echo "$full" | grep -qi -F "$APP"; then
+                    is_system="-"
+                    case "$pkg" in
+                        snapd|core|core[0-9]*|bare|gtk-common-themes|gnome-[0-9]*)
+                            is_system="$TXT_SYSTEM_BADGE"
+                            ;;
+                        *)
+                            if echo "$rest" | grep -qi -E "\b(base|snapd)\b"; then
+                                is_system="$TXT_SYSTEM_BADGE"
+                            fi
+                            ;;
+                    esac
+                    printf "%s\n%s\n%s\nSnap\n%s\n" "$app_name" "$pkg" "$ver" "$is_system"
+                fi
+            done
+        )
+    fi
+
+    # - APT: map system .desktop files to get friendly Name, Package, Version, and System status
+    APT_RES=""
+    if command -v dpkg-query >/dev/null 2>&1; then
+        map_data=$(
+            while IFS=: read -r pkg desktop; do
+                pkg="${pkg%%:*}"
+                desktop="${desktop#"${desktop%%[![:space:]]*}"}"
+                if [ -f "$desktop" ]; then
+                    name=$(grep -m 1 "^Name=" "$desktop" 2>/dev/null | cut -d= -f2-)
+                    [ -n "$name" ] && printf "%s\t%s\n" "$pkg" "$name"
+                fi
+            done < <(dpkg -S /usr/share/applications/*.desktop 2>/dev/null)
+        )
+
+        # Collect dependencies from base system metapackages
+        sys_deps=$(
+            {
+                dpkg-query -W -f='${Package}\n' ubuntu-desktop-minimal ubuntu-desktop ubuntu-standard ubuntu-minimal 2>/dev/null
+                apt-cache depends ubuntu-desktop-minimal ubuntu-desktop ubuntu-standard ubuntu-minimal 2>/dev/null | awk '/^[[:space:]]*(Depends|Recommends):/ { gsub(/[<>]/, "", $2); print $2 }'
+                apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances ubuntu-desktop-minimal ubuntu-desktop ubuntu-standard ubuntu-minimal 2>/dev/null | awk '/^[[:space:]]*Depends:/ { gsub(/[<>]/, "", $2); print $2 }'
+            } | sort -u
+        )
+
+        APT_RES=$(awk -F'\t' -v sys_badge="$TXT_SYSTEM_BADGE" '
+            FNR == 1 { file_idx++ }
+            file_idx == 1 {
+                if ($1 != "") sys_pkgs[$1] = 1
+                next
+            }
+            file_idx == 2 {
+                if (!($1 in names)) names[$1] = $2
+                next
+            }
+            file_idx == 3 {
+                if ($1 == "installed") {
+                    pkg = $2
+                    ver = ($3 != "" ? $3 : "-")
+                    summary = $4
+                    prio = $5
+                    essential = $6
+                    protected = $7
+                    name = (pkg in names ? names[pkg] : pkg)
+                    full = name " " pkg " " summary
+                    if (index(tolower(full), tolower(ENVIRON["APP"])) > 0) {
+                        is_sys = (prio == "required" || prio == "important" || essential == "yes" || protected == "yes" || (pkg in sys_pkgs) ? sys_badge : "-")
+                        print name "\n" pkg "\n" ver "\nApt\n" is_sys
+                    }
+                }
+            }
+        ' <(echo "$sys_deps") <(echo "$map_data") <(dpkg-query -W -f='${db:Status-Status}\t${Package}\t${Version}\t${binary:Summary}\t${Priority}\t${Essential}\t${Protected}\n' 2>/dev/null))
+    fi
+
+    # Aggregate all results and remove empty lines
+    OPCOES=$(echo -e "$FLATPAK_RES\n$SNAP_RES\n$APT_RES" | awk NF)
+
+    # If no packages found, display warning and return to search
+    if [ -z "$OPCOES" ]; then
+        err_msg=$(printf "$TXT_NO_PACKAGES_FOUND" "$APP")
+        zenity --error --title="$TXT_TITLE" --text="$err_msg" 2>/dev/null
+        continue
+    fi
+
+    # Inner navigation loop for results list and confirmation to support returning to previous screens
+    while true; do
+        # 3. Create GUI list dialog with Application Name, Package Name, Version, Format, and System
+        # Cancel button is positioned on the left, so we use TXT_BTN_BACK here
+        SELECAO=$(echo -e "$OPCOES" | zenity --list --title="$TXT_TABLE_TITLE" \
+            --text="$TXT_TABLE_HEADER" \
+            --column="$TXT_COL_APP" --column="$TXT_COL_PKG" --column="$TXT_COL_VER" --column="$TXT_COL_FORMAT" --column="$TXT_COL_SYSTEM" \
+            --print-column=ALL \
+            --width=820 --height=450 \
+            --ok-label="$TXT_BTN_UNINSTALL" \
+            --cancel-label="$TXT_BTN_BACK" 2>/dev/null)
+        ZENITY_RET=$?
+
+        # If user clicked "Back" (left button) or closed the dialog, return to search entry dialog
+        if [ $ZENITY_RET -ne 0 ] || [ -z "$SELECAO" ]; then
+            break
+        fi
+
+        # 4. Extract fields using delimiter '|'
+        APP_NAME=$(echo "$SELECAO" | cut -d'|' -f1)
+        PACOTE=$(echo "$SELECAO" | cut -d'|' -f2)
+        VERSAO=$(echo "$SELECAO" | cut -d'|' -f3)
+        FORMATO=$(echo "$SELECAO" | cut -d'|' -f4)
+        SISTEMA=$(echo "$SELECAO" | cut -d'|' -f5)
+
+        # 5. Ask confirmation before uninstalling
+        if [ "$APP_NAME" != "$PACOTE" ] && [ -n "$APP_NAME" ] && [ "$APP_NAME" != "-" ]; then
+            MSG_CONFIRM=$(printf "$TXT_CONFIRM_MSG_APP" "$APP_NAME" "$PACOTE" "$VERSAO" "$FORMATO")
+        else
+            MSG_CONFIRM=$(printf "$TXT_CONFIRM_MSG_PKG" "$PACOTE" "$VERSAO" "$FORMATO")
+        fi
+
+        # Add warning if it is a system application (indicated by red circle)
+        if [[ "$SISTEMA" == *"🔴"* ]]; then
+            MSG_CONFIRM="$TXT_CONFIRM_SYSTEM_WARN\n\n$MSG_CONFIRM"
+        fi
+
+        zenity --question --title="$TXT_CONFIRM_TITLE" \
+            --text="$MSG_CONFIRM" \
+            --ok-label="$TXT_BTN_CONFIRM_YES" \
+            --cancel-label="$TXT_BTN_CANCEL" \
+            --default-cancel 2>/dev/null
+
+        # If user clicked "Cancel" on confirmation, return to package list
+        if [ $? -ne 0 ]; then
+            continue
+        fi
+
+        # 6. Run uninstallation in terminal according to package format
+        case "$FORMATO" in
+            Snap) gnome-terminal -- bash -c "sudo snap remove $PACOTE; echo ''; read -p '$TXT_TERMINAL_EXIT'" ;;
+            Apt) gnome-terminal -- bash -c "sudo apt remove $PACOTE; echo ''; read -p '$TXT_TERMINAL_EXIT'" ;;
+            Flatpak) gnome-terminal -- bash -c "sudo flatpak uninstall $PACOTE; echo ''; read -p '$TXT_TERMINAL_EXIT'" ;;
+        esac
+
+        exit 0
+    done
+done

@@ -1,0 +1,6 @@
+Package: wheresapp
+Version: 2.0
+Architecture: all
+Maintainer: Emanuel Saramago <dev@emanuelsaramago.com>
+Depends: bash, zenity
+Description: Find a Apt, Snap or Flatpak packages
