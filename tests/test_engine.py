@@ -11,7 +11,19 @@ SHARE_DIR = os.path.join(REPO_ROOT, "usr", "share", "wheresapp")
 if SHARE_DIR not in sys.path:
     sys.path.insert(0, SHARE_DIR)
 
-from engine import parse_desktop_file, find_terminal_emulator, SearchEngine, uninstall_application
+from unittest.mock import patch
+
+from engine import (
+    parse_desktop_file,
+    find_terminal_emulator,
+    SearchEngine,
+    uninstall_application,
+    launch_application,
+    is_safe_user_app_dir,
+    is_safe_system_desktop_path,
+    is_valid_package_name,
+    is_system_package_name,
+)
 from i18n import I18n, get_active_locale
 
 
@@ -101,7 +113,7 @@ class TestPWAIcon(unittest.TestCase):
 
 
 class TestSystemProtection(unittest.TestCase):
-    """Test system package uninstall rejection."""
+    """Test system package uninstall rejection and detection."""
 
     def test_system_package_uninstall_refused(self):
         item = {"name": "Kernel", "package": "linux-image", "is_system": True, "format": "Apt"}
@@ -110,7 +122,212 @@ class TestSystemProtection(unittest.TestCase):
         self.assertFalse(success)
         self.assertIn("disabled", msg)
 
+    def test_system_package_patterns(self):
+        self.assertTrue(is_system_package_name("systemd"))
+        self.assertTrue(is_system_package_name("systemd-sysv"))
+        self.assertTrue(is_system_package_name("udev"))
+        self.assertTrue(is_system_package_name("dpkg"))
+        self.assertTrue(is_system_package_name("libc6"))
+        self.assertTrue(is_system_package_name("linux-image-6.8.0-generic"))
+        self.assertTrue(is_system_package_name("linux-headers-6.8.0-generic"))
+        self.assertTrue(is_system_package_name("grub-efi-amd64"))
+        self.assertFalse(is_system_package_name("curl"))
+        self.assertFalse(is_system_package_name("vlc"))
+
+    def test_critical_package_refused_even_when_flag_false(self):
+        i18n = I18n("en")
+        for pkg in ["linux-image-6.8.0-45-generic", "systemd", "grub-efi-amd64"]:
+            item = {"name": pkg, "package": pkg, "is_system": False, "format": "Apt"}
+            success, msg = uninstall_application(item, i18n)
+            self.assertFalse(success)
+            self.assertIn("disabled", msg)
+
+
+class TestLaunchApplication(unittest.TestCase):
+    """Test safe application execution."""
+
+    @patch("engine.subprocess.Popen")
+    def test_launch_local_app_safe_args(self, mock_popen):
+        item = {
+            "format": "Local",
+            "name": "Custom Tool",
+            "exec": '"/opt/My App/tool" --flag "arg with space" %U',
+            "desktop_file": "",
+        }
+        success, err = launch_application(item)
+        self.assertTrue(success)
+        self.assertEqual(err, "")
+        mock_popen.assert_called_once_with(
+            ["/opt/My App/tool", "--flag", "arg with space"],
+            start_new_session=True,
+        )
+
+    @patch("engine.subprocess.Popen")
+    def test_launch_prevents_shell_injection(self, mock_popen):
+        item = {
+            "format": "AppImage",
+            "name": "Malicious App",
+            "exec": "/home/user/app.AppImage; rm -rf /",
+            "desktop_file": "",
+        }
+        success, err = launch_application(item)
+        self.assertTrue(success)
+        called_args, called_kwargs = mock_popen.call_args
+        # Arguments must be split into a list without shell execution
+        self.assertEqual(called_args[0], ["/home/user/app.AppImage;", "rm", "-rf", "/"])
+        self.assertNotIn("shell", called_kwargs)
+        self.assertTrue(called_kwargs.get("start_new_session"))
+
+
+class TestPackageNameValidation(unittest.TestCase):
+    """Test package name regex validation for different package formats."""
+
+    def test_apt_package_validation(self):
+        self.assertTrue(is_valid_package_name("curl", "Apt"))
+        self.assertTrue(is_valid_package_name("python3-gi", "Apt"))
+        self.assertTrue(is_valid_package_name("libc6:amd64", "Apt"))
+        self.assertTrue(is_valid_package_name("gimp+extra", "Apt"))
+        # Flag injection, path traversal, and shell metacharacters must fail
+        self.assertFalse(is_valid_package_name("--purge", "Apt"))
+        self.assertFalse(is_valid_package_name("-y", "Apt"))
+        self.assertFalse(is_valid_package_name("pkg; touch /tmp/pwn", "Apt"))
+        self.assertFalse(is_valid_package_name("pkg&echo", "Apt"))
+        self.assertFalse(is_valid_package_name("", "Apt"))
+
+    def test_snap_package_validation(self):
+        self.assertTrue(is_valid_package_name("vlc", "Snap"))
+        self.assertTrue(is_valid_package_name("core22", "Snap"))
+        self.assertFalse(is_valid_package_name("--classic", "Snap"))
+        self.assertFalse(is_valid_package_name("-snap", "Snap"))
+        self.assertFalse(is_valid_package_name("snap; rm -rf /", "Snap"))
+
+    def test_flatpak_package_validation(self):
+        self.assertTrue(is_valid_package_name("org.videolan.VLC", "Flatpak"))
+        self.assertTrue(is_valid_package_name("com.spotify.Client", "Flatpak"))
+        self.assertFalse(is_valid_package_name("--user", "Flatpak"))
+        self.assertFalse(is_valid_package_name("-app", "Flatpak"))
+        self.assertFalse(is_valid_package_name("org.app; rm", "Flatpak"))
+
+
+class TestUninstallApplication(unittest.TestCase):
+    """Test safe uninstallation command generation."""
+
+    def test_invalid_package_name_rejected(self):
+        i18n = I18n("en")
+        for bad_pkg in ["--purge", "evil; rm -rf /", "-v", "pkg&evil"]:
+            item = {
+                "format": "Apt",
+                "name": "Bad App",
+                "package": bad_pkg,
+                "is_system": False,
+            }
+            success, err = uninstall_application(item, i18n)
+            self.assertFalse(success)
+            self.assertIn("Invalid package name", err)
+
+    @patch("engine.subprocess.Popen")
+    @patch("engine.find_terminal_emulator", return_value=("/usr/bin/gnome-terminal", "gnome"))
+    @patch("engine.shutil.which", return_value=None)
+    def test_terminal_fallback_uses_safe_quotes_and_separator(self, _mock_which, _mock_term, mock_popen):
+        item = {
+            "format": "Apt",
+            "name": "Valid App",
+            "package": "curl",
+            "is_system": False,
+        }
+        i18n = I18n("en")
+        success, _ = uninstall_application(item, i18n)
+        self.assertTrue(success)
+        mock_popen.assert_called_once()
+        cmd_args = mock_popen.call_args[0][0]
+        self.assertEqual(cmd_args[:3], ["/usr/bin/gnome-terminal", "--", "bash"])
+        bash_script = cmd_args[4]
+        # Command must include argument separator and package
+        self.assertIn("sudo apt remove -- curl;", bash_script)
+        self.assertIn("read -p 'Finished! Press Enter to exit...'", bash_script)
+
+    @patch("engine.subprocess.run")
+    @patch("engine.shutil.which")
+    def test_pkexec_command_has_argument_separator(self, mock_which, mock_run):
+        mock_which.side_effect = lambda cmd: "/usr/bin/pkexec" if cmd == "pkexec" else None
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
+
+        item = {
+            "format": "Snap",
+            "name": "Snap App",
+            "package": "vlc",
+            "is_system": False,
+        }
+        i18n = I18n("en")
+        success, _ = uninstall_application(item, i18n)
+        self.assertTrue(success)
+        mock_run.assert_called_once_with(
+            ["pkexec", "snap", "remove", "--", "vlc"],
+            capture_output=True,
+            text=True,
+        )
+
+
+class TestSafePathValidation(unittest.TestCase):
+    """Test safety checks for directory and desktop file paths."""
+
+    def test_user_app_dir_rejects_critical_paths(self):
+        home = os.path.expanduser("~")
+        # Direct home directory
+        self.assertFalse(is_safe_user_app_dir(home))
+        # Top-level standard folders
+        self.assertFalse(is_safe_user_app_dir(os.path.join(home, "Documents")))
+        self.assertFalse(is_safe_user_app_dir(os.path.join(home, "Downloads")))
+        self.assertFalse(is_safe_user_app_dir(os.path.join(home, ".local")))
+        self.assertFalse(is_safe_user_app_dir(os.path.join(home, ".local", "share")))
+        self.assertFalse(is_safe_user_app_dir(os.path.join(home, ".local", "bin")))
+        self.assertFalse(is_safe_user_app_dir(os.path.join(home, ".local", "share", "applications")))
+        # System directories outside home
+        self.assertFalse(is_safe_user_app_dir("/etc"))
+        self.assertFalse(is_safe_user_app_dir("/usr/bin"))
+
+    def test_user_app_dir_allows_nested_app_folders(self):
+        home = os.path.expanduser("~")
+        # Dedicated application folders
+        self.assertTrue(is_safe_user_app_dir(os.path.join(home, "Applications", "Obsidian")))
+        self.assertTrue(is_safe_user_app_dir(os.path.join(home, ".local", "share", "myapp")))
+
+    def test_system_desktop_path_validation(self):
+        self.assertTrue(is_safe_system_desktop_path("/usr/share/applications/firefox.desktop"))
+        self.assertTrue(is_safe_system_desktop_path("/usr/local/share/applications/custom.desktop"))
+        self.assertFalse(is_safe_system_desktop_path("/etc/shadow"))
+        self.assertFalse(is_safe_system_desktop_path("/home/user/.local/share/applications/test.desktop"))
+
+    @patch("engine.shutil.rmtree")
+    @patch("engine.os.remove")
+    def test_uninstall_refuses_to_delete_home_folder(self, _mock_remove, mock_rmtree):
+        home = os.path.expanduser("~")
+        with tempfile.NamedTemporaryFile("w", suffix=".desktop", delete=False) as f:
+            f.write(f"[Desktop Entry]\nName=Dangerous\nExec={home}\n")
+            temp_path = f.name
+
+        try:
+            item = {
+                "format": "Local",
+                "name": "Dangerous App",
+                "package": "dangerous",
+                "desktop_file": temp_path,
+                "is_system": False,
+            }
+            i18n = I18n("en")
+            success, _ = uninstall_application(item, i18n)
+            self.assertTrue(success)
+            # rmtree must never be called on home
+            mock_rmtree.assert_not_called()
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
 

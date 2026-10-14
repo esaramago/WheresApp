@@ -3,6 +3,7 @@
 import glob
 import os
 import re
+import shlex
 import shutil
 import subprocess
 
@@ -57,6 +58,136 @@ def find_terminal_emulator() -> tuple[str | None, str]:
     return None, ""
 
 
+def is_safe_user_app_dir(path: str) -> bool:
+    """Validate that path is a dedicated application folder before deletion."""
+    try:
+        real_path = os.path.realpath(os.path.abspath(os.path.expanduser(path)))
+        home_dir = os.path.realpath(os.path.expanduser("~"))
+
+        # Must reside strictly inside the user's home directory
+        if not real_path.startswith(home_dir + os.sep):
+            return False
+
+        rel = os.path.relpath(real_path, home_dir)
+        parts = rel.split(os.sep)
+
+        # Must be at least 2 levels deep inside home (e.g., .local/share/myapp)
+        if len(parts) < 2:
+            return False
+
+        # Protect standard top-level user directories
+        forbidden_top_dirs = {
+            ".local",
+            ".config",
+            ".cache",
+            ".ssh",
+            ".gnupg",
+            ".mozilla",
+            "Desktop",
+            "Documents",
+            "Downloads",
+            "Music",
+            "Pictures",
+            "Videos",
+            "bin",
+            "Applications",
+        }
+        if parts[0] in forbidden_top_dirs and len(parts) == 1:
+            return False
+
+        # Protect standard subdirectories
+        if parts[:2] in [
+            [".local", "share"],
+            [".local", "bin"],
+            [".local", "lib"],
+            [".config", "dconf"],
+        ] and len(parts) <= 2:
+            return False
+
+        # Never delete the applications directory itself
+        if parts[:3] == [".local", "share", "applications"] and len(parts) <= 3:
+            return False
+
+        return True
+    except Exception:
+        return False
+
+
+def is_safe_system_desktop_path(path: str) -> bool:
+    """Validate that desktop file path is inside allowed system application directories."""
+    try:
+        real = os.path.realpath(path)
+        allowed_dirs = ["/usr/share/applications", "/usr/local/share/applications"]
+        return any(real.startswith(d + os.sep) for d in allowed_dirs) and real.endswith(".desktop")
+    except Exception:
+        return False
+
+
+def is_valid_package_name(pkg: str, fmt: str) -> bool:
+    """Validate package identifier format based on package manager."""
+    if not pkg or len(pkg) > 255:
+        return False
+
+    if fmt == "Apt":
+        # Debian package names: alphanumeric, plus, minus, period, colon (for multiarch)
+        return bool(re.match(r"^[a-zA-Z0-9][a-zA-Z0-9+.:~-]*$", pkg))
+
+    if fmt == "Snap":
+        # Snap names: alphanumeric and hyphens, cannot start with hyphen
+        return bool(re.match(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$", pkg))
+
+    if fmt == "Flatpak":
+        # Flatpak reverse DNS identifiers: alphanumeric, dots, hyphens, underscores
+        return bool(re.match(r"^[a-zA-Z0-9_.-]+$", pkg) and not pkg.startswith("-"))
+
+    if fmt in ["Local", "AppImage", "PWA"]:
+        return bool(re.match(r"^[a-zA-Z0-9_.-]+$", pkg) and not pkg.startswith("-"))
+
+    return False
+
+
+def is_system_package_name(pkg: str) -> bool:
+    """Check if package name matches critical system packages or patterns."""
+    pkg_lower = pkg.lower()
+
+    # Core essential packages that must never be uninstalled
+    core_pkgs = {
+        "systemd",
+        "systemd-sysv",
+        "udev",
+        "init",
+        "dpkg",
+        "apt",
+        "libc6",
+        "libc-bin",
+        "base-files",
+        "base-passwd",
+        "linux-base",
+        "linux-firmware",
+        "grub-pc",
+        "grub-common",
+        "shim-signed",
+        "network-manager",
+        "netplan.io",
+        "wpasupplicant",
+        "sudo",
+        "polkitd",
+        "policykit-1",
+    }
+    if pkg_lower in core_pkgs:
+        return True
+
+    # Core system package prefixes (kernels, modules, bootloaders)
+    prefixes = (
+        "linux-image-",
+        "linux-headers-",
+        "linux-modules-",
+        "grub-efi-",
+        "systemd-",
+    )
+    return any(pkg_lower.startswith(p) for p in prefixes)
+
+
 class SearchEngine:
     """Application search and package discovery engine."""
 
@@ -74,8 +205,20 @@ class SearchEngine:
                 pkg_key = os.path.splitext(os.path.basename(path))[0]
                 self.cached_desktop_map[pkg_key] = (info["name"], path, info["icon"])
 
-        # Cache base Ubuntu system metapackages
-        metapackages = ["ubuntu-desktop-minimal", "ubuntu-desktop", "ubuntu-standard", "ubuntu-minimal"]
+        # Cache base Ubuntu, Debian, and Mint system metapackages
+        metapackages = [
+            "ubuntu-desktop-minimal",
+            "ubuntu-desktop",
+            "ubuntu-standard",
+            "ubuntu-minimal",
+            "task-desktop",
+            "task-gnome-desktop",
+            "task-xfce-desktop",
+            "task-kde-desktop",
+            "debian-core",
+            "mint-meta-core",
+            "mint-meta-cinnamon",
+        ]
         try:
             res = subprocess.run(
                 ["dpkg-query", "-W", "-f=${Package}\\n"] + metapackages,
@@ -269,6 +412,7 @@ class SearchEngine:
                         prio in ["required", "important"]
                         or essential == "yes"
                         or protected == "yes"
+                        or is_system_package_name(pkg)
                         or pkg in self.cached_sys_pkgs
                     )
                     results.append({
@@ -346,10 +490,16 @@ def launch_application(item: dict) -> tuple[bool, str]:
     elif fmt in ["Local", "AppImage", "PWA"]:
         exec_cmd = item.get("exec", "")
         if exec_cmd:
-            # Strip desktop % field codes like %u, %F
-            clean_cmd = re.sub(r"\s%[a-zA-Z]", "", exec_cmd)
-            subprocess.Popen(clean_cmd, shell=True, start_new_session=True)
-            return True, ""
+            # Strip desktop field codes like %u, %F, %k
+            clean_cmd = re.sub(r"\s%[a-zA-Z%]", "", exec_cmd).strip()
+            if clean_cmd:
+                try:
+                    cmd_parts = shlex.split(clean_cmd)
+                    if cmd_parts:
+                        subprocess.Popen(cmd_parts, start_new_session=True)
+                        return True, ""
+                except Exception:
+                    pass
 
     elif fmt == "Apt":
         # Check if desktop file was installed by dpkg
@@ -369,12 +519,16 @@ def launch_application(item: dict) -> tuple[bool, str]:
 
 def uninstall_application(item: dict, i18n) -> tuple[bool, str]:
     """Perform application uninstallation using pkexec (graphical auth) or terminal fallback."""
-    if item.get("is_system"):
-        return False, i18n.get("system_uninstall_disabled")
-
     fmt = item.get("format")
     pkg = item.get("package", "")
     name = item.get("name", pkg)
+
+    if item.get("is_system") or (fmt == "Apt" and is_system_package_name(pkg)):
+        return False, i18n.get("system_uninstall_disabled")
+
+    if fmt in ["Apt", "Snap", "Flatpak"]:
+        if not is_valid_package_name(pkg, fmt):
+            return False, f"Invalid package name: {pkg}"
 
     has_pkexec = shutil.which("pkexec") is not None
 
@@ -386,17 +540,27 @@ def uninstall_application(item: dict, i18n) -> tuple[bool, str]:
                     info = parse_desktop_file(desktop_file)
                     exec_line = info.get("exec", "")
                     os.remove(desktop_file)
-                    if exec_line and exec_line.startswith(os.path.expanduser("~")):
-                        clean_exec = exec_line.split()[0]
-                        if os.path.isdir(clean_exec):
+                    if exec_line:
+                        try:
+                            parts = shlex.split(exec_line)
+                            raw_bin = parts[0] if parts else ""
+                        except Exception:
+                            raw_bin = exec_line.split()[0] if exec_line.split() else ""
+
+                        clean_exec = os.path.abspath(os.path.expanduser(raw_bin))
+                        if is_safe_user_app_dir(clean_exec) and os.path.isdir(clean_exec):
                             shutil.rmtree(clean_exec, ignore_errors=True)
+                        elif clean_exec.lower().endswith(".appimage") and os.path.isfile(clean_exec):
+                            if clean_exec.startswith(os.path.expanduser("~")):
+                                os.remove(clean_exec)
+
                         symlink = os.path.expanduser(f"~/.local/bin/{os.path.basename(clean_exec)}")
                         if os.path.islink(symlink):
                             os.remove(symlink)
                     return True, i18n.get("uninstall_success", name=name)
                 except Exception as e:
                     return False, str(e)
-            elif has_pkexec:
+            elif has_pkexec and is_safe_system_desktop_path(desktop_file):
                 cmd = ["pkexec", "rm", "-f", desktop_file]
                 try:
                     res = subprocess.run(cmd, capture_output=True, text=True)
@@ -408,15 +572,17 @@ def uninstall_application(item: dict, i18n) -> tuple[bool, str]:
                         return False, res.stderr.strip() or f"Exit code {res.returncode}"
                 except Exception as e:
                     return False, str(e)
+            elif has_pkexec:
+                return False, "Unauthorized desktop file path"
 
     if has_pkexec:
         cmd = []
         if fmt == "Snap":
-            cmd = ["pkexec", "snap", "remove", pkg]
+            cmd = ["pkexec", "snap", "remove", "--", pkg]
         elif fmt == "Apt":
-            cmd = ["pkexec", "apt-get", "remove", "-y", pkg]
+            cmd = ["pkexec", "apt-get", "remove", "-y", "--", pkg]
         elif fmt == "Flatpak":
-            cmd = ["flatpak", "uninstall", "-y", pkg]
+            cmd = ["flatpak", "uninstall", "-y", "--", pkg]
 
         if cmd:
             try:
@@ -437,13 +603,15 @@ def uninstall_application(item: dict, i18n) -> tuple[bool, str]:
         return False, i18n.get("no_terminal")
 
     exit_prompt = i18n.get("terminal_exit")
+    safe_pkg = shlex.quote(pkg)
+    safe_prompt = shlex.quote(exit_prompt)
     bash_cmd = ""
     if fmt == "Snap":
-        bash_cmd = f"sudo snap remove {pkg}; echo ''; read -p '{exit_prompt}'"
+        bash_cmd = f"sudo snap remove -- {safe_pkg}; echo ''; read -p {safe_prompt}"
     elif fmt == "Apt":
-        bash_cmd = f"sudo apt remove {pkg}; echo ''; read -p '{exit_prompt}'"
+        bash_cmd = f"sudo apt remove -- {safe_pkg}; echo ''; read -p {safe_prompt}"
     elif fmt == "Flatpak":
-        bash_cmd = f"flatpak uninstall {pkg}; echo ''; read -p '{exit_prompt}'"
+        bash_cmd = f"flatpak uninstall -- {safe_pkg}; echo ''; read -p {safe_prompt}"
 
     if not bash_cmd:
         return False, "Unknown format for uninstallation"
