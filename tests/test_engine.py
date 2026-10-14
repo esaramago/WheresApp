@@ -351,6 +351,44 @@ class TestDesktopMapping(unittest.TestCase):
             self.assertEqual(icon, "org.gnome.Calculator")
 
 
+class TestAppStreamMetaInfo(unittest.TestCase):
+    """Test AppStream metainfo specification and required fields."""
+
+    def test_metainfo_file_fields(self):
+        import xml.etree.ElementTree as ET
+        metainfo_path = os.path.join(REPO_ROOT, "usr", "share", "metainfo", "com.github.esaramago.wheresapp.metainfo.xml")
+        self.assertTrue(os.path.isfile(metainfo_path))
+
+        tree = ET.parse(metainfo_path)
+        root = tree.getroot()
+        self.assertEqual(root.tag, "component")
+        self.assertEqual(root.attrib.get("type"), "desktop-application")
+
+        license_elem = root.find("project_license")
+        self.assertIsNotNone(license_elem)
+        self.assertEqual(license_elem.text, "MIT")
+
+        homepage = root.find("./url[@type='homepage']")
+        self.assertIsNotNone(homepage)
+        self.assertTrue(homepage.text.startswith("https://github.com/"))
+
+        releases = root.findall("./releases/release")
+        self.assertGreater(len(releases), 0)
+        latest_release = releases[0]
+        self.assertIn("version", latest_release.attrib)
+        self.assertIn("date", latest_release.attrib)
+
+    def test_appstreamcli_validation(self):
+        import shutil, subprocess
+        appstreamcli = shutil.which("appstreamcli")
+        if not appstreamcli:
+            self.skipTest("appstreamcli not found")
+
+        metainfo_path = os.path.join(REPO_ROOT, "usr", "share", "metainfo", "com.github.esaramago.wheresapp.metainfo.xml")
+        res = subprocess.run([appstreamcli, "validate", "--no-net", metainfo_path], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, f"appstreamcli validation failed:\n{res.stdout}\n{res.stderr}")
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<component type="desktop-application">
+  <id>com.github.esaramago.wheresapp</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>WheresApp</name>
+  <name xml:lang="pt">WheresApp</name>
+  <summary>Find, open, and uninstall desktop applications</summary>
+  <summary xml:lang="pt">Procura, abre e desinstala aplicações no Ubuntu</summary>
+  <developer id="com.github.esaramago">
+    <name>Emanuel Saramago</name>
+  </developer>
+  <description>
+    <p>A modern GTK 4 and Libadwaita desktop utility to find, launch, and uninstall APT, Snap, Flatpak, AppImage, PWA, and local desktop applications.</p>
+    <p xml:lang="pt">Um utilitário moderno em GTK 4 e Libadwaita para procurar, abrir e desinstalar aplicações APT, Snap, Flatpak, AppImage, PWA e locais.</p>
+  </description>
+  <launchable type="desktop-id">wheresapp.desktop</launchable>
+  <url type="homepage">https://github.com/esaramago/ubuntu-app-uninstaller</url>
+  <url type="bugtracker">https://github.com/esaramago/ubuntu-app-uninstaller/issues</url>
+  <icon type="stock">wheresapp</icon>
+  <categories>
+    <category>System</category>
+    <category>Utility</category>
+  </categories>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="3.1" date="2026-10-14">
+      <description>
+        <p>Improved package detection and protection for system components.</p>
+        <p xml:lang="pt">Deteção melhorada e proteção reforçada de pacotes do sistema.</p>
+      </description>
+    </release>
+    <release version="3.0" date="2026-10-14">
+      <description>
+        <p>GTK 4 and Libadwaita user interface migration with in-app uninstallation.</p>
+        <p xml:lang="pt">Migração da interface gráfica para GTK 4 e Libadwaita com desinstalação integrada.</p>
+      </description>
+    </release>
+  </releases>
+</component>
