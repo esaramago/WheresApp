@@ -1,5 +1,5 @@
-Package: wheresapp
-Version: 3.0
+Package: WheresApp
+Version: 3.1
 Architecture: all
 Maintainer: Emanuel Saramago <dev@emanuelsaramago.com>
 Depends: python3, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1
