@@ -292,7 +292,7 @@ class WheresAppWindow(Adw.ApplicationWindow):
         btn_open = Gtk.Button()
         btn_open_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         btn_open_box.set_halign(Gtk.Align.CENTER)
-        btn_open_box.append(Gtk.Image.new_from_icon_name("media-playback-start-symbolic"))
+        btn_open_box.append(Gtk.Image.new_from_icon_name("external-link-symbolic"))
         btn_open_box.append(Gtk.Label(label=self.i18n.get("btn_open")))
         btn_open.set_child(btn_open_box)
         btn_open.set_hexpand(True)
