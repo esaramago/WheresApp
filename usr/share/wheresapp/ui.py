@@ -195,6 +195,22 @@ class WheresAppWindow(Adw.ApplicationWindow):
         toast.set_timeout(3)
         self.toast_overlay.add_toast(toast)
 
+    def reset_to_home(self):
+        """Reset interface state back to initial home view."""
+        if self.search_timer_id is not None:
+            GLib.source_remove(self.search_timer_id)
+            self.search_timer_id = None
+        self.current_search_id += 1
+        self.spinner.stop()
+        self.spinner.set_visible(False)
+        self.search_entry.set_text("")
+        while True:
+            child = self.flow_box.get_first_child()
+            if child is None:
+                break
+            self.flow_box.remove(child)
+        self.stack.set_visible_child_name("empty")
+
     def _on_search_changed(self, entry: Gtk.SearchEntry):
         """Handle search text input with debounce timing."""
         if self.search_timer_id is not None:
@@ -438,5 +454,6 @@ class WheresAppWindow(Adw.ApplicationWindow):
             success, err = uninstall_application(item, self.i18n)
             if success:
                 self.show_toast(self.i18n.get("uninstall_started"))
+                self.reset_to_home()
             else:
                 self.show_toast(err or "Failed to start uninstaller")

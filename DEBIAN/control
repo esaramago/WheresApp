@@ -6,4 +6,4 @@ Depends: python3, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1
 Replaces: uninstaller
 Breaks: uninstaller
 Provides: uninstaller
-Description: Find, open, or uninstall APT, Snap, Flatpak, AppImage, PWA, and local desktop applications
+Description: Find and open or uninstall APT, Snap, Flatpak, AppImage, PWA, and local desktop applications
