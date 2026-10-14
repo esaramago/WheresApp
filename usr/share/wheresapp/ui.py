@@ -304,10 +304,10 @@ class WheresAppWindow(Adw.ApplicationWindow):
         info_box.set_hexpand(True)
 
         title_label = Gtk.Label(label=item["name"])
-        title_label.add_css_class("heading")
+        title_label.add_css_class("title-4")
         title_label.set_halign(Gtk.Align.START)
         title_label.set_ellipsize(Pango.EllipsizeMode.END)
-        title_label.set_max_width_chars(28)
+        title_label.set_max_width_chars(24)
         title_label.set_tooltip_text(item["name"])
         info_box.append(title_label)
 
@@ -315,10 +315,9 @@ class WheresAppWindow(Adw.ApplicationWindow):
         sub_text = f"{item['package']} {ver_text}".strip()
         pkg_label = Gtk.Label(label=sub_text)
         pkg_label.add_css_class("dim-label")
-        pkg_label.add_css_class("caption")
         pkg_label.set_halign(Gtk.Align.START)
         pkg_label.set_ellipsize(Pango.EllipsizeMode.END)
-        pkg_label.set_max_width_chars(32)
+        pkg_label.set_max_width_chars(28)
         pkg_label.set_tooltip_text(sub_text)
         info_box.append(pkg_label)
 
