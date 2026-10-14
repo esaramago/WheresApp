@@ -89,5 +89,17 @@ class TestTerminalDetection(unittest.TestCase):
         self.assertIn(style, ["gnome", "konsole", "generic"])
 
 
+class TestPWAIcon(unittest.TestCase):
+    """Test PWA icon fallback creation."""
+
+    def test_pwa_icon_fallback(self):
+        from ui import create_app_icon
+        from gi.repository import Gtk
+        # PWA with empty icon should return a valid Gtk Widget (Image or Box)
+        icon_widget = create_app_icon("", app_format="PWA", pixel_size=48)
+        self.assertTrue(isinstance(icon_widget, Gtk.Widget))
+
+
 if __name__ == "__main__":
     unittest.main()
+

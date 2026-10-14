@@ -6,33 +6,85 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk, Pango
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 
 from engine import SearchEngine, launch_application, uninstall_application
 from i18n import I18n
 
 
-def create_app_icon(icon_name: str, pixel_size: int = 48) -> Gtk.Widget:
-    """Create an icon image widget with specified pixel size."""
-    if not icon_name:
-        img = Gtk.Image.new_from_icon_name("application-x-executable-symbolic")
-        img.set_pixel_size(pixel_size)
-        return img
-
-    if os.path.isabs(icon_name) and os.path.isfile(icon_name):
-        img = Gtk.Image.new_from_file(icon_name)
-        img.set_pixel_size(pixel_size)
-        return img
-
-    # Check /usr/share/pixmaps for image files matching the icon name
-    for ext in [".png", ".svg"]:
-        candidate = os.path.join("/usr/share/pixmaps", icon_name + ext)
-        if os.path.isfile(candidate):
-            img = Gtk.Image.new_from_file(candidate)
+def create_pwa_badge_icon(pixel_size: int = 48) -> Gtk.Widget:
+    """Create a stylized icon displaying the word PWA for web apps without a logo."""
+    # Look for pwa-icon.svg in system pixmaps or relative project directories
+    module_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        "/usr/share/pixmaps/pwa-icon.svg",
+        os.path.abspath(os.path.join(module_dir, "../pixmaps/pwa-icon.svg")),
+        os.path.abspath(os.path.join(module_dir, "../../share/pixmaps/pwa-icon.svg")),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            img = Gtk.Image.new_from_file(c)
             img.set_pixel_size(pixel_size)
             return img
 
-    img = Gtk.Image.new_from_icon_name(icon_name)
+    # Fallback to a styled GTK widget with PWA label
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    box.set_size_request(pixel_size, pixel_size)
+    box.set_valign(Gtk.Align.CENTER)
+    box.set_halign(Gtk.Align.CENTER)
+    box.add_css_class("card")
+    box.add_css_class("accent")
+
+    lbl = Gtk.Label(label="PWA")
+    lbl.add_css_class("heading")
+    lbl.set_vexpand(True)
+    lbl.set_hexpand(True)
+    box.append(lbl)
+    return box
+
+
+def create_app_icon(icon_name: str, app_format: str = "", pixel_size: int = 48) -> Gtk.Widget:
+    """Create an icon image widget with specified pixel size, with PWA fallback."""
+    has_valid_icon = False
+    valid_file_path = None
+
+    if icon_name:
+        if os.path.isabs(icon_name) and os.path.isfile(icon_name):
+            has_valid_icon = True
+            valid_file_path = icon_name
+        else:
+            # Check /usr/share/pixmaps for image files matching the icon name
+            for ext in [".png", ".svg"]:
+                candidate = os.path.join("/usr/share/pixmaps", icon_name + ext)
+                if os.path.isfile(candidate):
+                    has_valid_icon = True
+                    valid_file_path = candidate
+                    break
+
+            if not has_valid_icon:
+                try:
+                    display = Gdk.Display.get_default()
+                    if display:
+                        theme = Gtk.IconTheme.get_for_display(display)
+                        if theme and theme.has_icon(icon_name):
+                            has_valid_icon = True
+                except Exception:
+                    pass
+
+    if has_valid_icon:
+        if valid_file_path:
+            img = Gtk.Image.new_from_file(valid_file_path)
+            img.set_pixel_size(pixel_size)
+            return img
+        img = Gtk.Image.new_from_icon_name(icon_name)
+        img.set_pixel_size(pixel_size)
+        return img
+
+    # When no valid icon is found and application format is PWA
+    if app_format == "PWA":
+        return create_pwa_badge_icon(pixel_size=pixel_size)
+
+    img = Gtk.Image.new_from_icon_name("application-x-executable-symbolic")
     img.set_pixel_size(pixel_size)
     return img
 
@@ -229,7 +281,7 @@ class WheresAppWindow(Adw.ApplicationWindow):
 
         # Top row: application icon on the left, name & package in the middle, badges on the right
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        icon_widget = create_app_icon(item.get("icon", ""), pixel_size=48)
+        icon_widget = create_app_icon(item.get("icon", ""), app_format=item.get("format", ""), pixel_size=48)
         icon_widget.set_valign(Gtk.Align.CENTER)
         header.append(icon_widget)
 
