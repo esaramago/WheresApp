@@ -217,7 +217,7 @@ class WheresAppWindow(Adw.ApplicationWindow):
         """Construct a responsive card widget for a search result item."""
         card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         card_box.add_css_class("card")
-        card_box.set_size_request(240, -1)
+        card_box.set_size_request(260, -1)
 
         # Inner container with margins for padding
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -227,14 +227,39 @@ class WheresAppWindow(Adw.ApplicationWindow):
         inner.set_margin_end(12)
         card_box.append(inner)
 
-        # Top row: application icon + badge column
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        # Top row: application icon on the left, name & package in the middle, badges on the right
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         icon_widget = create_app_icon(item.get("icon", ""), pixel_size=48)
+        icon_widget.set_valign(Gtk.Align.CENTER)
         header.append(icon_widget)
 
+        # Application Name and Package info to the right of the icon
+        info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        info_box.set_valign(Gtk.Align.CENTER)
+        info_box.set_hexpand(True)
+
+        title_label = Gtk.Label(label=item["name"])
+        title_label.add_css_class("heading")
+        title_label.set_halign(Gtk.Align.START)
+        title_label.set_ellipsize(Pango.EllipsizeMode.END)
+        title_label.set_tooltip_text(item["name"])
+        info_box.append(title_label)
+
+        ver_text = f"v{item['version']}" if item["version"] != "-" else ""
+        sub_text = f"{item['package']} {ver_text}".strip()
+        pkg_label = Gtk.Label(label=sub_text)
+        pkg_label.add_css_class("dim-label")
+        pkg_label.add_css_class("caption")
+        pkg_label.set_halign(Gtk.Align.START)
+        pkg_label.set_ellipsize(Pango.EllipsizeMode.END)
+        pkg_label.set_tooltip_text(sub_text)
+        info_box.append(pkg_label)
+
+        header.append(info_box)
+
+        # Badges box on the right
         badge_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        badge_box.set_valign(Gtk.Align.CENTER)
-        badge_box.set_hexpand(True)
+        badge_box.set_valign(Gtk.Align.START)
         badge_box.set_halign(Gtk.Align.END)
 
         # Format tag badge
@@ -253,25 +278,6 @@ class WheresAppWindow(Adw.ApplicationWindow):
 
         header.append(badge_box)
         inner.append(header)
-
-        # Application Title
-        title_label = Gtk.Label(label=item["name"])
-        title_label.add_css_class("heading")
-        title_label.set_halign(Gtk.Align.START)
-        title_label.set_ellipsize(Pango.EllipsizeMode.END)
-        title_label.set_tooltip_text(item["name"])
-        inner.append(title_label)
-
-        # Package name and version
-        ver_text = f"v{item['version']}" if item["version"] != "-" else ""
-        sub_text = f"{item['package']} {ver_text}".strip()
-        pkg_label = Gtk.Label(label=sub_text)
-        pkg_label.add_css_class("dim-label")
-        pkg_label.add_css_class("caption")
-        pkg_label.set_halign(Gtk.Align.START)
-        pkg_label.set_ellipsize(Pango.EllipsizeMode.END)
-        pkg_label.set_tooltip_text(sub_text)
-        inner.append(pkg_label)
 
         # Spacer to push action buttons to card bottom
         spacer = Gtk.Box()
