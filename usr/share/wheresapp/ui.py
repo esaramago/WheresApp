@@ -451,9 +451,39 @@ class WheresAppWindow(Adw.ApplicationWindow):
         """Process response from uninstallation confirmation dialog."""
         response = dialog.choose_finish(result)
         if response == "uninstall":
-            success, err = uninstall_application(item, self.i18n)
-            if success:
-                self.show_toast(self.i18n.get("uninstall_started"))
-                self.reset_to_home()
-            else:
-                self.show_toast(err or "Failed to start uninstaller")
+            self._start_uninstall_process(item)
+
+    def _start_uninstall_process(self, item: dict):
+        """Show progress dialog and launch uninstallation in a background worker thread."""
+        name = item.get("name", item.get("package", ""))
+        heading = self.i18n.get("uninstalling_title", name=name)
+        body = self.i18n.get("uninstalling_body")
+
+        progress_dialog = Adw.AlertDialog(heading=heading, body=body)
+        spinner = Gtk.Spinner()
+        spinner.set_size_request(32, 32)
+        spinner.set_halign(Gtk.Align.CENTER)
+        spinner.start()
+        progress_dialog.set_extra_child(spinner)
+
+        progress_dialog.choose(self, None, lambda *args: None)
+
+        def worker():
+            success, msg = uninstall_application(item, self.i18n)
+            GLib.idle_add(self._on_uninstall_finished, progress_dialog, success, msg, item)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_uninstall_finished(self, progress_dialog: Adw.AlertDialog, success: bool, message: str, item: dict):
+        """Handle uninstallation completion on the main GTK thread."""
+        try:
+            progress_dialog.force_close()
+        except Exception:
+            pass
+
+        name = item.get("name", item.get("package", ""))
+        if success:
+            self.show_toast(message or self.i18n.get("uninstall_success", name=name))
+            self.reset_to_home()
+        else:
+            self.show_toast(message or self.i18n.get("uninstall_cancelled"))

@@ -368,77 +368,86 @@ def launch_application(item: dict) -> tuple[bool, str]:
 
 
 def uninstall_application(item: dict, i18n) -> tuple[bool, str]:
-    """Launch terminal emulator to perform uninstallation."""
+    """Perform application uninstallation using pkexec (graphical auth) or terminal fallback."""
     if item.get("is_system"):
         return False, i18n.get("system_uninstall_disabled")
 
+    fmt = item.get("format")
+    pkg = item.get("package", "")
+    name = item.get("name", pkg)
+
+    has_pkexec = shutil.which("pkexec") is not None
+
+    if fmt in ["Local", "AppImage", "PWA"]:
+        desktop_file = item.get("desktop_file", "")
+        if desktop_file and os.path.isfile(desktop_file):
+            if os.access(desktop_file, os.W_OK) and os.access(os.path.dirname(desktop_file), os.W_OK):
+                try:
+                    info = parse_desktop_file(desktop_file)
+                    exec_line = info.get("exec", "")
+                    os.remove(desktop_file)
+                    if exec_line and exec_line.startswith(os.path.expanduser("~")):
+                        clean_exec = exec_line.split()[0]
+                        if os.path.isdir(clean_exec):
+                            shutil.rmtree(clean_exec, ignore_errors=True)
+                        symlink = os.path.expanduser(f"~/.local/bin/{os.path.basename(clean_exec)}")
+                        if os.path.islink(symlink):
+                            os.remove(symlink)
+                    return True, i18n.get("uninstall_success", name=name)
+                except Exception as e:
+                    return False, str(e)
+            elif has_pkexec:
+                cmd = ["pkexec", "rm", "-f", desktop_file]
+                try:
+                    res = subprocess.run(cmd, capture_output=True, text=True)
+                    if res.returncode == 0:
+                        return True, i18n.get("uninstall_success", name=name)
+                    elif res.returncode in [126, 127]:
+                        return False, i18n.get("uninstall_cancelled")
+                    else:
+                        return False, res.stderr.strip() or f"Exit code {res.returncode}"
+                except Exception as e:
+                    return False, str(e)
+
+    if has_pkexec:
+        cmd = []
+        if fmt == "Snap":
+            cmd = ["pkexec", "snap", "remove", pkg]
+        elif fmt == "Apt":
+            cmd = ["pkexec", "apt-get", "remove", "-y", pkg]
+        elif fmt == "Flatpak":
+            cmd = ["flatpak", "uninstall", "-y", pkg]
+
+        if cmd:
+            try:
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                if res.returncode == 0:
+                    return True, i18n.get("uninstall_success", name=name)
+                elif res.returncode in [126, 127]:
+                    return False, i18n.get("uninstall_cancelled")
+                else:
+                    err = res.stderr.strip() or res.stdout.strip() or f"Exit code {res.returncode}"
+                    return False, i18n.get("uninstall_error", name=name, err=err)
+            except Exception as e:
+                return False, str(e)
+
+    # Terminal fallback if pkexec not available
     term_bin, style = find_terminal_emulator()
     if not term_bin:
         return False, i18n.get("no_terminal")
 
-    fmt = item.get("format")
-    pkg = item.get("package", "")
     exit_prompt = i18n.get("terminal_exit")
-
     bash_cmd = ""
     if fmt == "Snap":
         bash_cmd = f"sudo snap remove {pkg}; echo ''; read -p '{exit_prompt}'"
     elif fmt == "Apt":
         bash_cmd = f"sudo apt remove {pkg}; echo ''; read -p '{exit_prompt}'"
     elif fmt == "Flatpak":
-        bash_cmd = f"sudo flatpak uninstall {pkg}; echo ''; read -p '{exit_prompt}'"
-    elif fmt in ["Local", "AppImage", "PWA"]:
-        desktop_file = item.get("desktop_file", "")
-        app_name = item.get("name", pkg)
-        bash_cmd = f"""
-echo "{i18n.get('terminal_uninstall_title')}"
-echo "{i18n.get('col_app')}: {app_name}"
-desktop_path="{desktop_file}"
-if [ -f "$desktop_path" ]; then
-    exec_line=$(grep -m 1 '^Exec=' "$desktop_path" 2>/dev/null | cut -d= -f2- | awk '{{print $1}}')
-    echo "Desktop: $desktop_path"
-    [ -n "$exec_line" ] && echo "Executable: $exec_line"
-    echo ''
-    read -p "{i18n.get('terminal_confirm_delete')}" confirm
-    if [[ "$confirm" =~ ^[yYsS] ]]; then
-        if [ -w "$(dirname "$desktop_path")" ]; then
-            rm -f "$desktop_path"
-            echo "{i18n.get('terminal_file_removed')} $desktop_path"
-        else
-            sudo rm -f "$desktop_path"
-            echo "{i18n.get('terminal_file_removed')} $desktop_path"
-        fi
-        if [ -n "$exec_line" ] && [ -e "$exec_line" ]; then
-            case "$exec_line" in
-                "$HOME"/*)
-                    app_bundle=$(echo "$exec_line" | grep -o '^.*/[^/]*\\.app\\b')
-                    if [ -n "$app_bundle" ] && [ -d "$app_bundle" ]; then
-                        rm -rf "$app_bundle"
-                        echo "{i18n.get('terminal_file_removed')} $app_bundle"
-                    fi
-                    symlink="$HOME/.local/bin/$(basename "$exec_line")"
-                    if [ -L "$symlink" ]; then
-                        rm -f "$symlink"
-                        echo "{i18n.get('terminal_file_removed')} $symlink"
-                    fi
-                    ;;
-            esac
-        fi
-        echo "{i18n.get('terminal_uninstall_done')}"
-    else
-        echo "{i18n.get('terminal_uninstall_cancel')}"
-    fi
-else
-    echo "File not found: $desktop_path"
-fi
-echo ''
-read -p "{exit_prompt}"
-"""
+        bash_cmd = f"flatpak uninstall {pkg}; echo ''; read -p '{exit_prompt}'"
 
     if not bash_cmd:
         return False, "Unknown format for uninstallation"
 
-    # Execute terminal command
     try:
         if style in ["gnome", "konsole"]:
             subprocess.Popen([term_bin, "--", "bash", "-c", bash_cmd], start_new_session=True)
