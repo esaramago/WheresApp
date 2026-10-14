@@ -340,13 +340,8 @@ class WheresAppWindow(Adw.ApplicationWindow):
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         btn_box.set_margin_top(6)
 
-        # Open button with icon and label
-        btn_open = Gtk.Button()
-        btn_open_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        btn_open_box.set_halign(Gtk.Align.CENTER)
-        btn_open_box.append(Gtk.Image.new_from_icon_name("external-link-symbolic"))
-        btn_open_box.append(Gtk.Label(label=self.i18n.get("btn_open")))
-        btn_open.set_child(btn_open_box)
+        # Open button with text label
+        btn_open = Gtk.Button(label=self.i18n.get("btn_open"))
         btn_open.set_hexpand(True)
         btn_open.set_tooltip_text(self.i18n.get("btn_open"))
         btn_open.connect("clicked", lambda _b, it=item: self._on_launch_clicked(it))
