@@ -307,6 +307,7 @@ class WheresAppWindow(Adw.ApplicationWindow):
         title_label.add_css_class("heading")
         title_label.set_halign(Gtk.Align.START)
         title_label.set_ellipsize(Pango.EllipsizeMode.END)
+        title_label.set_max_width_chars(28)
         title_label.set_tooltip_text(item["name"])
         info_box.append(title_label)
 
@@ -317,6 +318,7 @@ class WheresAppWindow(Adw.ApplicationWindow):
         pkg_label.add_css_class("caption")
         pkg_label.set_halign(Gtk.Align.START)
         pkg_label.set_ellipsize(Pango.EllipsizeMode.END)
+        pkg_label.set_max_width_chars(32)
         pkg_label.set_tooltip_text(sub_text)
         info_box.append(pkg_label)
 
