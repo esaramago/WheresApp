@@ -45,7 +45,7 @@ TRANSLATIONS = {
         "search_prompt": "Nome da aplicação ou pacote...",
         "search_placeholder": "Escreva pelo menos 2 caracteres para pesquisar...",
         "empty_title": "Procurar Aplicações",
-        "empty_desc": "Procurar, abrir ou desinstalar aplicações APT, Snap, Flatpak, AppImage e PWA.",
+        "empty_desc": "Procura e abre ou desinstala aplicações APT, Snap, Flatpak, AppImage e PWA.",
         "not_found_title": "Nenhuma Aplicação Encontrada",
         "not_found_desc": "Nenhum pacote corresponde a '{query}'.",
         "col_app": "Aplicação",
