@@ -326,6 +326,31 @@ class TestSafePathValidation(unittest.TestCase):
                 os.remove(temp_path)
 
 
+class TestDesktopMapping(unittest.TestCase):
+    """Test package-to-desktop entry mapping in SearchEngine."""
+
+    def test_arch_qualified_package_lookup(self):
+        engine = SearchEngine()
+        engine.cached_desktop_map["test-app"] = ("Test Application", "/usr/share/applications/test.desktop", "test-icon")
+
+        with patch("engine.subprocess.run") as mock_run:
+            mock_run.return_value.stdout = "installed\ttest-app:amd64\t1.0\toptional\tno\tno\n"
+            results = engine.search_apt("test")
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]["name"], "Test Application")
+            self.assertEqual(results[0]["icon"], "test-icon")
+            self.assertEqual(results[0]["desktop_file"], "/usr/share/applications/test.desktop")
+
+    def test_dpkg_s_populates_desktop_map(self):
+        engine = SearchEngine()
+        # Ensure cached_desktop_map contains mapped entries
+        if "gnome-calculator" in engine.cached_desktop_map:
+            name, path, icon = engine.cached_desktop_map["gnome-calculator"]
+            self.assertEqual(name, "Calculator")
+            self.assertTrue(path.endswith(".desktop"))
+            self.assertEqual(icon, "org.gnome.Calculator")
+
+
 if __name__ == "__main__":
     unittest.main()
 

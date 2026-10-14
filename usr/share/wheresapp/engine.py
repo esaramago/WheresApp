@@ -199,11 +199,39 @@ class SearchEngine:
     def init_cache(self):
         """Pre-populate system package dependencies and desktop file maps."""
         # Index system desktop files in /usr/share/applications
-        for path in glob.glob("/usr/share/applications/*.desktop"):
+        desktop_files = glob.glob("/usr/share/applications/*.desktop")
+        for path in desktop_files:
             info = parse_desktop_file(path)
             if info["name"] and not info["nodisplay"]:
                 pkg_key = os.path.splitext(os.path.basename(path))[0]
                 self.cached_desktop_map[pkg_key] = (info["name"], path, info["icon"])
+
+        # Map Debian package names to desktop entries using dpkg -S
+        dpkg_bin = shutil.which("dpkg")
+        if dpkg_bin and desktop_files:
+            try:
+                res = subprocess.run(
+                    [dpkg_bin, "-S"] + desktop_files,
+                    capture_output=True,
+                    text=True,
+                )
+                for line in res.stdout.splitlines():
+                    if ": " not in line:
+                        continue
+                    pkg_section, file_path = line.split(": ", 1)
+                    file_path = file_path.strip()
+                    info = parse_desktop_file(file_path)
+                    if not info["name"] or info["nodisplay"]:
+                        continue
+                    for p in pkg_section.split(","):
+                        pkg_name = p.split(":")[0].strip()
+                        if not pkg_name:
+                            continue
+                        base = os.path.splitext(os.path.basename(file_path))[0]
+                        if pkg_name not in self.cached_desktop_map or base == pkg_name:
+                            self.cached_desktop_map[pkg_name] = (info["name"], file_path, info["icon"])
+            except Exception:
+                pass
 
         # Cache base Ubuntu, Debian, and Mint system metapackages
         metapackages = [
@@ -402,6 +430,8 @@ class SearchEngine:
 
                 _, pkg, ver, prio, essential, protected = parts[:6]
                 d_info = self.cached_desktop_map.get(pkg)
+                if not d_info and ":" in pkg:
+                    d_info = self.cached_desktop_map.get(pkg.split(":")[0])
                 name = d_info[0] if d_info else pkg
                 desktop_file = d_info[1] if d_info else ""
                 icon = d_info[2] if d_info else pkg
