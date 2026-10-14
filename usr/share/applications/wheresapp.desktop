@@ -1,0 +1,15 @@
+[Desktop Entry]
+Name=WheresApp
+Name[pt]=WheresApp
+Name[pt_PT]=WheresApp
+Name[en_GB]=WheresApp
+Comment=Find, open, and uninstall APT, Snap, Flatpak, AppImage, and PWA applications
+Comment[pt]=Procurar, abrir e desinstalar aplicações APT, Snap, Flatpak, AppImage e PWA
+Comment[pt_PT]=Procurar, abrir e desinstalar aplicações APT, Snap, Flatpak, AppImage e PWA
+Comment[en_GB]=Find, open, and uninstall APT, Snap, Flatpak, AppImage, and PWA applications
+Exec=/usr/local/bin/wheresapp
+Icon=wheresapp
+Terminal=false
+Type=Application
+Categories=System;Utility;
+StartupWMClass=zenity

@@ -3,4 +3,7 @@ Version: 2.0
 Architecture: all
 Maintainer: Emanuel Saramago <dev@emanuelsaramago.com>
 Depends: bash, zenity
-Description: Find a Apt, Snap or Flatpak packages
+Replaces: uninstaller
+Breaks: uninstaller
+Provides: uninstaller
+Description: Find, open, or uninstall APT, Snap, Flatpak, AppImage, PWA, and local desktop applications

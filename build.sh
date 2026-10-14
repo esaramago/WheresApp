@@ -11,7 +11,8 @@ if [ ! -f "$CONTROL_FILE" ]; then
     exit 1
 fi
 
-# Extract the version defined in the DEBIAN/control file
+# Extract the package name and version defined in the DEBIAN/control file
+PACKAGE=$(awk -F': ' '/^Package:/ {print $2}' "$CONTROL_FILE" | tr -d '[:space:]')
 VERSION=$(awk -F': ' '/^Version:/ {print $2}' "$CONTROL_FILE" | tr -d '[:space:]')
 
 if [ -z "$VERSION" ]; then
@@ -19,7 +20,7 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-OUTPUT="ubuntu-app-uninstaller_${VERSION}.deb"
+OUTPUT="${PACKAGE:-wheresapp}_${VERSION}.deb"
 BUILD_DIR=$(mktemp -d)
 trap 'rm -rf "$BUILD_DIR"' EXIT
 
@@ -36,8 +37,8 @@ chmod 755 "$BUILD_DIR/DEBIAN"
 chmod 644 "$BUILD_DIR/DEBIAN/control"
 find "$BUILD_DIR/usr" -type d -exec chmod 755 {} +
 find "$BUILD_DIR/usr" -type f -exec chmod 644 {} +
-chmod 755 "$BUILD_DIR/usr/local/bin/uninstaller"
-chmod 755 usr/local/bin/uninstaller
+chmod 755 "$BUILD_DIR/usr/local/bin/"*
+chmod 755 usr/local/bin/*
 
 echo "==> Generating package ${OUTPUT}..."
 dpkg-deb --root-owner-group --build "$BUILD_DIR" "${OUTPUT}"

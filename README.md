@@ -1,6 +1,6 @@
-# Ubuntu App Uninstaller
+# WheresApp
 
-A lightweight Bash utility with a **Zenity** GUI to easily search for and uninstall **APT**, **Snap**, and **Flatpak** packages on Ubuntu.
+A lightweight Bash utility with a **Zenity** GUI to find, launch, and uninstall **APT**, **Snap**, **Flatpak**, **AppImage**, **PWA**, and **Local** applications on Ubuntu.
 
 ---
 
@@ -13,7 +13,7 @@ sudo apt update
 sudo apt install zenity gnome-terminal dpkg
 ```
 
-> **Note:** To search and remove Snap or Flatpak packages, make sure `snapd` and `flatpak` are installed and configured on your system.
+> **Note:** To search and manage Snap or Flatpak packages, make sure `snapd` and `flatpak` are installed and configured on your system.
 
 ---
 
@@ -23,21 +23,21 @@ You can run and test the script directly without building or installing the pack
 
 1. Grant execute permissions to the script:
    ```bash
-   chmod +x usr/local/bin/uninstaller
+   chmod +x usr/local/bin/wheresapp usr/local/bin/uninstaller
    ```
 
 2. Run the script (automatically uses your system locale):
    ```bash
-   ./usr/local/bin/uninstaller
+   ./usr/local/bin/wheresapp
    ```
 
    You can also specify a language manually using `--lang` (or `-l`):
    ```bash
    # Run in Portuguese (pt-PT)
-   ./usr/local/bin/uninstaller --lang pt
+   ./usr/local/bin/wheresapp --lang pt
 
    # Run in British English (en-GB)
-   ./usr/local/bin/uninstaller --lang en
+   ./usr/local/bin/wheresapp --lang en
    ```
 
 ---
@@ -45,18 +45,18 @@ You can run and test the script directly without building or installing the pack
 ## 🌐 Multi-Language Support (i18n)
 
 The application supports multiple languages and automatically detects your system locale:
-- **Portuguese (`pt-PT`)**: Default for any Portuguese system locale (`pt_*`).
+- **Portuguese (`pt-PT`)**: Default for Portuguese system locales (`pt_*`).
 - **English (`en-GB`)**: Default fallback for other locales.
 
-Translation files are modular and stored in:
-- `usr/share/ubuntu-app-uninstaller/lang/pt-PT.sh`
-- `usr/share/ubuntu-app-uninstaller/lang/en-GB.sh`
+Translation files are stored in:
+- `usr/share/wheresapp/lang/pt-PT.sh`
+- `usr/share/wheresapp/lang/en-GB.sh`
 
 ---
 
 ## 📦 Building / Packaging the Debian Package (`.deb`)
 
-This application is written in Bash and does not require binary compilation, but it needs to be **packaged** into a `.deb` file for distribution and system-wide installation.
+This application is written in Bash and does not require binary compilation, but it can be packaged into a `.deb` file for distribution and system-wide installation.
 
 ### Automated Build (Recommended)
 
@@ -66,7 +66,7 @@ Run the included build script from the project root directory:
 ./build.sh
 ```
 
-This script automatically verifies and sets the required file permissions, extracts the version from `DEBIAN/control`, and outputs `ubuntu-app-uninstaller_<version>.deb` (e.g. `ubuntu-app-uninstaller_1.0.deb`).
+This script sets the required file permissions, extracts the version from `DEBIAN/control`, and creates `wheresapp_<version>.deb` (e.g. `wheresapp_2.0.deb`).
 
 <details>
 <summary>Manual Build Instructions</summary>
@@ -75,14 +75,14 @@ This script automatically verifies and sets the required file permissions, extra
    ```bash
    chmod 755 DEBIAN
    chmod 644 DEBIAN/control
-   chmod 755 usr/local/bin/uninstaller
-   chmod 644 usr/share/applications/uninstaller.desktop
+   chmod 755 usr/local/bin/*
+   chmod 644 usr/share/applications/*
    chmod 644 usr/share/pixmaps/*
    ```
 
 2. Build the `.deb` package:
    ```bash
-   dpkg-deb --root-owner-group --build . "ubuntu-app-uninstaller_$(awk -F': ' '/^Version:/ {print $2}' DEBIAN/control).deb"
+   dpkg-deb --root-owner-group --build . "wheresapp_$(awk -F': ' '/^Version:/ {print $2}' DEBIAN/control | tr -d '[:space:]').deb"
    ```
 </details>
 

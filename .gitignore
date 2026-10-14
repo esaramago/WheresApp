@@ -1,3 +1,5 @@
 # Debian package artifacts
 *.deb
 
+# AI task management
+.ai/
