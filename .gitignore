@@ -3,3 +3,7 @@
 
 # AI task management
 .ai/
+
+# Python bytecode
+__pycache__/
+*.pyc

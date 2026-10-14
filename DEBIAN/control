@@ -1,8 +1,8 @@
 Package: wheresapp
-Version: 2.0
+Version: 3.0
 Architecture: all
 Maintainer: Emanuel Saramago <dev@emanuelsaramago.com>
-Depends: bash, zenity
+Depends: python3, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1
 Replaces: uninstaller
 Breaks: uninstaller
 Provides: uninstaller

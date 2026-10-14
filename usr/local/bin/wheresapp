@@ -1,455 +1,107 @@
-#!/bin/bash
+#!/usr/bin/python3
+# Entry point for WheresApp GTK 4 / Libadwaita application
+import argparse
+import os
+import sys
 
-# Clear environment variables inherited from Snap/Flatpak applications (e.g., VS Code)
-# that may cause conflicts with host system GTK/glibc libraries when opening the terminal
-unset GTK_PATH GTK_EXE_PREFIX GTK_IM_MODULE_FILE GIO_MODULE_DIR GSETTINGS_SCHEMA_DIR GDK_PIXBUF_MODULE_FILE GDK_PIXBUF_MODULEDIR LOCPATH
+# Clear environment variables inherited from Snap or Flatpak contexts (e.g., VS Code terminal)
+# that may cause library conflicts with host GTK 4 or glibc
+for var in [
+    "GTK_PATH",
+    "GTK_EXE_PREFIX",
+    "GTK_IM_MODULE_FILE",
+    "GIO_MODULE_DIR",
+    "GSETTINGS_SCHEMA_DIR",
+    "GDK_PIXBUF_MODULE_FILE",
+    "GDK_PIXBUF_MODULEDIR",
+    "LOCPATH",
+]:
+    os.environ.pop(var, None)
 
-# Parse command line options
-REQUESTED_LANG=""
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --lang|-l)
-            REQUESTED_LANG="$2"
-            shift 2
-            ;;
-        --lang=*)
-            REQUESTED_LANG="${1#*=}"
-            shift
-            ;;
-        *)
-            shift
-            ;;
-    esac
-done
+# Locate share directory for modules and translations
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+POSSIBLE_PATHS = [
+    os.path.abspath(os.path.join(SCRIPT_DIR, "../../share/wheresapp")),
+    os.path.abspath(os.path.join(SCRIPT_DIR, "../share/wheresapp")),
+    "/usr/share/wheresapp",
+    "/usr/local/share/wheresapp",
+]
 
-# Determine active language:
-# 1. Command-line argument (--lang / -l)
-# 2. Environment variable (APP_LANG)
-# 3. System locale (LC_ALL, LC_MESSAGES, LANG)
-TARGET_LANG="${REQUESTED_LANG:-${APP_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-en_GB}}}}}"
+SHARE_DIR = None
+for candidate in POSSIBLE_PATHS:
+    if os.path.isdir(candidate) and os.path.isfile(os.path.join(candidate, "ui.py")):
+        SHARE_DIR = candidate
+        break
 
-case "$TARGET_LANG" in
-    pt*|PT*)
-        ACTIVE_LANG="pt-PT"
-        ;;
-    *)
-        ACTIVE_LANG="en-GB"
-        ;;
-esac
+if SHARE_DIR and SHARE_DIR not in sys.path:
+    sys.path.insert(0, SHARE_DIR)
 
-# Locate translations directory (supports local development, /usr/local, and system /usr)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -d "$SCRIPT_DIR/../../share/wheresapp/lang" ]; then
-    LANG_DIR="$(cd "$SCRIPT_DIR/../../share/wheresapp/lang" && pwd)"
-elif [ -d "$SCRIPT_DIR/../share/wheresapp/lang" ]; then
-    LANG_DIR="$(cd "$SCRIPT_DIR/../share/wheresapp/lang" && pwd)"
-elif [ -d "/usr/share/wheresapp/lang" ]; then
-    LANG_DIR="/usr/share/wheresapp/lang"
-elif [ -d "/usr/local/share/wheresapp/lang" ]; then
-    LANG_DIR="/usr/local/share/wheresapp/lang"
-else
-    LANG_DIR=""
-fi
+import gi
 
-# Load fallback translations (en-GB) first, then target language
-if [ -n "$LANG_DIR" ] && [ -f "$LANG_DIR/en-GB.sh" ]; then
-    # shellcheck source=/dev/null
-    source "$LANG_DIR/en-GB.sh"
-fi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gio
 
-if [ -n "$LANG_DIR" ] && [ "$ACTIVE_LANG" != "en-GB" ] && [ -f "$LANG_DIR/${ACTIVE_LANG}.sh" ]; then
-    # shellcheck source=/dev/null
-    source "$LANG_DIR/${ACTIVE_LANG}.sh"
-fi
+from i18n import I18n
+from ui import WheresAppWindow
 
-# Function to launch an application according to its package format
-launch_app() {
-    local formato="$1"
-    local pacote="$2"
-    local app_name="$3"
-    local desktop=""
-    local bin=""
 
-    case "$formato" in
-        Flatpak)
-            # Check for exported flatpak desktop files in system and user directories
-            desktop=$(ls "/var/lib/flatpak/exports/share/applications/${pacote}.desktop" "$HOME/.local/share/flatpak/exports/share/applications/${pacote}.desktop" 2>/dev/null | head -n 1)
-            if [ -n "$desktop" ] && [ -f "$desktop" ] && command -v gio >/dev/null 2>&1; then
-                nohup gio launch "$desktop" >/dev/null 2>&1 &
-                return 0
-            elif command -v gtk-launch >/dev/null 2>&1 && gtk-launch "${pacote}.desktop" 2>/dev/null; then
-                return 0
-            elif command -v flatpak >/dev/null 2>&1; then
-                nohup flatpak run "$pacote" >/dev/null 2>&1 &
-                return 0
-            fi
-            ;;
+class WheresApp(Adw.Application):
+    """Main application instance."""
 
-        Snap)
-            # Check for snap desktop file in snapd applications directory
-            desktop=$(ls /var/lib/snapd/desktop/applications/${pacote}_*.desktop /var/lib/snapd/desktop/applications/${pacote}.desktop 2>/dev/null | head -n 1)
-            if [ -n "$desktop" ] && [ -f "$desktop" ] && command -v gio >/dev/null 2>&1; then
-                nohup gio launch "$desktop" >/dev/null 2>&1 &
-                return 0
-            elif [ -n "$desktop" ] && command -v gtk-launch >/dev/null 2>&1 && gtk-launch "$(basename "$desktop" .desktop)" 2>/dev/null; then
-                return 0
-            elif command -v snap >/dev/null 2>&1; then
-                nohup snap run "$pacote" >/dev/null 2>&1 &
-                return 0
-            fi
-            ;;
-
-        Apt)
-            # Check for installed desktop file in apt package file list
-            desktop=$(dpkg -L "$pacote" 2>/dev/null | grep -E '^/usr/share/applications/.*\.desktop$' | head -n 1)
-            if [ -n "$desktop" ] && [ -f "$desktop" ] && command -v gio >/dev/null 2>&1; then
-                nohup gio launch "$desktop" >/dev/null 2>&1 &
-                return 0
-            elif [ -n "$desktop" ] && [ -f "$desktop" ] && command -v gtk-launch >/dev/null 2>&1 && gtk-launch "$(basename "$desktop" .desktop)" 2>/dev/null; then
-                return 0
-            fi
-
-            # Check if there is a command-line binary if no desktop file was found
-            bin=$(dpkg -L "$pacote" 2>/dev/null | grep -E '^/(usr/)?(bin|games)/' | head -n 1)
-            if [ -n "$bin" ] && [ -x "$bin" ]; then
-                zenity --question --title="$TXT_TITLE" \
-                    --text="$(printf "$TXT_PROMPT_RUN_CLI" "$app_name" "$bin")" \
-                    --ok-label="$TXT_BTN_RUN_CLI" \
-                    --cancel-label="$TXT_BTN_CANCEL" 2>/dev/null
-                if [ $? -eq 0 ]; then
-                    gnome-terminal -- bash -c "$bin; exec bash" &
-                    return 0
-                fi
-                return 1
-            fi
-            ;;
-
-        Local)
-            # Check for desktop file in user and local directories
-            desktop=""
-            for d in "$HOME/.local/share/applications/${pacote}.desktop" "/usr/local/share/applications/${pacote}.desktop" "/usr/share/applications/${pacote}.desktop"; do
-                if [ -f "$d" ]; then
-                    desktop="$d"
-                    break
-                fi
-            done
-            if [ -n "$desktop" ] && command -v gio >/dev/null 2>&1; then
-                nohup gio launch "$desktop" >/dev/null 2>&1 &
-                return 0
-            elif [ -n "$desktop" ] && command -v gtk-launch >/dev/null 2>&1 && gtk-launch "${pacote}.desktop" 2>/dev/null; then
-                return 0
-            elif [ -n "$desktop" ]; then
-                exec_cmd=$(grep -m 1 "^Exec=" "$desktop" 2>/dev/null | cut -d= -f2- | sed -E 's/ %[a-zA-Z]//g')
-                if [ -n "$exec_cmd" ]; then
-                    nohup bash -c "$exec_cmd" >/dev/null 2>&1 &
-                    return 0
-                fi
-            fi
-            ;;
-    esac
-
-    zenity --warning --title="$TXT_TITLE" --text="$(printf "$TXT_ERR_NO_LAUNCHER" "$app_name")" 2>/dev/null
-    return 1
-}
-
-APP=""
-
-while true; do
-    # 1. Prompt for application name or search term
-    APP=$(zenity --entry --title="$TXT_TITLE" --text="$TXT_SEARCH_PROMPT" --entry-text="$APP" --ok-label="$TXT_BTN_SEARCH" --cancel-label="$TXT_BTN_CANCEL" 2>/dev/null)
-    [ $? -ne 0 ] && exit 0
-
-    # Ensure search term has at least 2 characters (ignoring leading/trailing whitespace)
-    APP_TRIM="${APP#"${APP%%[![:space:]]*}"}"
-    APP_TRIM="${APP_TRIM%"${APP_TRIM##*[![:space:]]}"}"
-    char_count=$(echo -n "$APP_TRIM" | LC_ALL=C.UTF-8 wc -m 2>/dev/null)
-    [ -z "$char_count" ] && char_count=${#APP_TRIM}
-
-    if [ "$char_count" -lt 2 ]; then
-        zenity --warning --title="$TXT_TITLE" --text="$TXT_SEARCH_MIN_CHARS" 2>/dev/null
-        continue
-    fi
-
-    APP="$APP_TRIM"
-    export APP
-
-    # 2. Search package sources (Flatpak, Snap, APT)
-    # Format output in sequential lines (Application \n Package \n Version \n Format \n System) for Zenity table
-
-    # - Flatpak: retrieve Name, Application ID, and Version
-    FLATPAK_RES=""
-    if command -v flatpak >/dev/null 2>&1; then
-        FLATPAK_RES=$(flatpak list --columns=name:f,application:f,version:f 2>/dev/null | awk -F'\t' '{
-            app_name = ($1 != "" ? $1 : "-")
-            pkg = ($2 != "" ? $2 : "-")
-            ver = ($3 != "" ? $3 : "-")
-            full = app_name " " pkg
-            if (index(tolower(full), tolower(ENVIRON["APP"])) > 0) {
-                print app_name "\n" pkg "\n" ver "\nFlatpak\n-"
-            }
-        }')
-    fi
-
-    # - Snap: retrieve Application Name (via desktop file or snap name), Package, Version, and System status
-    SNAP_RES=""
-    if command -v snap >/dev/null 2>&1; then
-        SNAP_RES=$(
-            snap list 2>/dev/null | tail -n +2 | while read -r pkg ver rest; do
-                [ -z "$pkg" ] && continue
-                desktop=$(ls /var/lib/snapd/desktop/applications/${pkg}_*.desktop /var/lib/snapd/desktop/applications/${pkg}.desktop 2>/dev/null | head -n 1)
-                app_name=""
-                if [ -n "$desktop" ] && [ -f "$desktop" ]; then
-                    app_name=$(grep -m 1 "^Name=" "$desktop" 2>/dev/null | cut -d= -f2-)
-                fi
-                [ -z "$app_name" ] && app_name="$pkg"
-                [ -z "$ver" ] && ver="-"
-                full="$app_name $pkg"
-                if echo "$full" | grep -qi -F "$APP"; then
-                    is_system="-"
-                    case "$pkg" in
-                        snapd|core|core[0-9]*|bare|gtk-common-themes|gnome-[0-9]*)
-                            is_system="$TXT_SYSTEM_BADGE"
-                            ;;
-                        *)
-                            if echo "$rest" | grep -qi -E "\b(base|snapd)\b"; then
-                                is_system="$TXT_SYSTEM_BADGE"
-                            fi
-                            ;;
-                    esac
-                    printf "%s\n%s\n%s\nSnap\n%s\n" "$app_name" "$pkg" "$ver" "$is_system"
-                fi
-            done
+    def __init__(self, requested_lang: str | None = None, initial_query: str = ""):
+        super().__init__(
+            application_id="com.github.esaramago.wheresapp",
+            flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE | Gio.ApplicationFlags.NON_UNIQUE,
         )
-    fi
+        self.requested_lang = requested_lang
+        self.initial_query = initial_query
+        self.window: WheresAppWindow | None = None
 
-    # - Local / Standalone applications: scan user and local .desktop files
-    LOCAL_RES=$(
-        local_dirs=("$HOME/.local/share/applications" "/usr/local/share/applications")
-        for l_dir in "${local_dirs[@]}"; do
-            [ -d "$l_dir" ] || continue
-            for d_file in "$l_dir"/*.desktop; do
-                [ -f "$d_file" ] || continue
-                # Ignore hidden applications (NoDisplay=true)
-                if grep -qi "^NoDisplay=true" "$d_file" 2>/dev/null; then
-                    continue
-                fi
-                # Skip Flatpak and Snap exported desktop files to avoid duplicates
-                if grep -qi -E "^(X-Flatpak=|X-SnapInstanceName=)" "$d_file" 2>/dev/null; then
-                    continue
-                fi
-                app_name=$(grep -m 1 "^Name=" "$d_file" 2>/dev/null | cut -d= -f2-)
-                [ -z "$app_name" ] && continue
-                pkg=$(basename "$d_file" .desktop)
-                full="$app_name $pkg"
-                if echo "$full" | grep -qi -F "$APP"; then
-                    printf "%s\n%s\n-\nLocal\n-\n" "$app_name" "$pkg"
-                fi
-            done
-        done
-    )
+    def do_activate(self):
+        """Handle application activation."""
+        if not self.window:
+            i18n = I18n(self.requested_lang)
+            self.window = WheresAppWindow(self, i18n, self.initial_query)
+        self.window.present()
 
-    # - APT: map system .desktop files to get friendly Name, Package, Version, and System status
-    APT_RES=""
-    if command -v dpkg-query >/dev/null 2>&1; then
-        map_data=$(
-            while IFS=: read -r pkg desktop; do
-                pkg="${pkg%%:*}"
-                desktop="${desktop#"${desktop%%[![:space:]]*}"}"
-                if [ -f "$desktop" ]; then
-                    name=$(grep -m 1 "^Name=" "$desktop" 2>/dev/null | cut -d= -f2-)
-                    [ -n "$name" ] && printf "%s\t%s\n" "$pkg" "$name"
-                fi
-            done < <(dpkg -S /usr/share/applications/*.desktop 2>/dev/null)
-        )
+    def do_command_line(self, command_line: Gio.ApplicationCommandLine) -> int:
+        """Parse command line options and activate window."""
+        args = command_line.get_arguments()
+        # Parse arguments passed through GApplication
+        parser = argparse.ArgumentParser(description="WheresApp - Application search and uninstaller")
+        parser.add_argument("--lang", "-l", help="Language code (pt or en)", default=None)
+        parser.add_argument("--mode", help="Execution mode (default or uninstall)", default="default")
+        parser.add_argument("query", nargs="*", help="Initial search term")
 
-        # Collect dependencies from base system metapackages
-        sys_deps=$(
-            {
-                dpkg-query -W -f='${Package}\n' ubuntu-desktop-minimal ubuntu-desktop ubuntu-standard ubuntu-minimal 2>/dev/null
-                apt-cache depends ubuntu-desktop-minimal ubuntu-desktop ubuntu-standard ubuntu-minimal 2>/dev/null | awk '/^[[:space:]]*(Depends|Recommends):/ { gsub(/[<>]/, "", $2); print $2 }'
-                apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances ubuntu-desktop-minimal ubuntu-desktop ubuntu-standard ubuntu-minimal 2>/dev/null | awk '/^[[:space:]]*Depends:/ { gsub(/[<>]/, "", $2); print $2 }'
-            } | sort -u
-        )
+        try:
+            parsed, _ = parser.parse_known_args(args[1:])
+            if parsed.lang:
+                self.requested_lang = parsed.lang
+            if parsed.query:
+                self.initial_query = " ".join(parsed.query)
+        except Exception:
+            pass
 
-        APT_RES=$(awk -F'\t' -v sys_badge="$TXT_SYSTEM_BADGE" '
-            FNR == 1 { file_idx++ }
-            file_idx == 1 {
-                if ($1 != "") sys_pkgs[$1] = 1
-                next
-            }
-            file_idx == 2 {
-                if (!($1 in names)) names[$1] = $2
-                next
-            }
-            file_idx == 3 {
-                if ($1 == "installed") {
-                    pkg = $2
-                    ver = ($3 != "" ? $3 : "-")
-                    summary = $4
-                    prio = $5
-                    essential = $6
-                    protected = $7
-                    name = (pkg in names ? names[pkg] : pkg)
-                    full = name " " pkg
-                    if (index(tolower(full), tolower(ENVIRON["APP"])) > 0) {
-                        is_sys = (prio == "required" || prio == "important" || essential == "yes" || protected == "yes" || (pkg in sys_pkgs) ? sys_badge : "-")
-                        print name "\n" pkg "\n" ver "\nApt\n" is_sys
-                    }
-                }
-            }
-        ' <(echo "$sys_deps") <(echo "$map_data") <(dpkg-query -W -f='${db:Status-Status}\t${Package}\t${Version}\t${binary:Summary}\t${Priority}\t${Essential}\t${Protected}\n' 2>/dev/null))
-    fi
+        self.activate()
+        return 0
 
-    # Aggregate all results and remove empty lines
-    OPCOES=$(echo -e "$FLATPAK_RES\n$SNAP_RES\n$LOCAL_RES\n$APT_RES" | awk NF)
 
-    # If no packages found, display warning and return to search
-    if [ -z "$OPCOES" ]; then
-        err_msg=$(printf "$TXT_NO_PACKAGES_FOUND" "$APP")
-        zenity --error --title="$TXT_TITLE" --text="$err_msg" 2>/dev/null
-        continue
-    fi
+def main():
+    """Main entry point."""
+    # Pre-parse command line arguments
+    parser = argparse.ArgumentParser(description="WheresApp - Application search and uninstaller")
+    parser.add_argument("--lang", "-l", help="Language code (pt or en)", default=None)
+    parser.add_argument("--mode", help="Execution mode (default or uninstall)", default="default")
+    parser.add_argument("query", nargs="*", help="Initial search term")
 
-    # Inner navigation loop for results list
-    while true; do
-        # 3. Create GUI list dialog with Application Name, Package Name, Version, Format, and System
-        SELECAO=$(echo -e "$OPCOES" | zenity --list --title="$TXT_TABLE_TITLE" \
-            --text="$TXT_TABLE_HEADER" \
-            --column="$TXT_COL_APP" --column="$TXT_COL_PKG" --column="$TXT_COL_VER" --column="$TXT_COL_FORMAT" --column="$TXT_COL_SYSTEM" \
-            --print-column=ALL \
-            --width=820 --height=450 \
-            --ok-label="$TXT_BTN_CONTINUE" \
-            --cancel-label="$TXT_BTN_BACK" 2>/dev/null)
-        ZENITY_RET=$?
+    parsed, unknown = parser.parse_known_args()
+    query = " ".join(parsed.query) if parsed.query else ""
 
-        # If user clicked "Back" or closed the dialog, return to search entry dialog
-        if [ $ZENITY_RET -ne 0 ] || [ -z "$SELECAO" ]; then
-            break
-        fi
+    app = WheresApp(requested_lang=parsed.lang, initial_query=query)
+    # Pass clean argv to Adw.Application
+    sys.exit(app.run([sys.argv[0]] + unknown))
 
-        # 4. Extract fields using delimiter '|'
-        APP_NAME=$(echo "$SELECAO" | cut -d'|' -f1)
-        PACOTE=$(echo "$SELECAO" | cut -d'|' -f2)
-        VERSAO=$(echo "$SELECAO" | cut -d'|' -f3)
-        FORMATO=$(echo "$SELECAO" | cut -d'|' -f4)
-        SISTEMA=$(echo "$SELECAO" | cut -d'|' -f5)
 
-        DISPLAY_NAME="$APP_NAME"
-        if [ -z "$DISPLAY_NAME" ] || [ "$DISPLAY_NAME" = "-" ]; then
-            DISPLAY_NAME="$PACOTE"
-        fi
-
-        # Inner loop for action selection
-        while true; do
-            ACTION_PROMPT=$(printf "$TXT_ACTION_HEADER" "$DISPLAY_NAME" "$FORMATO" "$PACOTE" "$VERSAO")
-
-            ACTION=$(zenity --list --radiolist \
-                --title="$TXT_ACTION_TITLE" \
-                --text="$ACTION_PROMPT" \
-                --column="" --column="$TXT_COL_ACTION" \
-                TRUE "$TXT_ACTION_OPEN" \
-                FALSE "$TXT_ACTION_UNINSTALL" \
-                --width=520 --height=280 \
-                --ok-label="$TXT_BTN_SELECT" \
-                --cancel-label="$TXT_BTN_BACK" 2>/dev/null)
-
-            # If user clicked "Back" or closed the dialog, return to package list
-            if [ $? -ne 0 ] || [ -z "$ACTION" ]; then
-                break
-            fi
-
-            # Handle Open Action
-            if [ "$ACTION" = "$TXT_ACTION_OPEN" ]; then
-                if launch_app "$FORMATO" "$PACOTE" "$DISPLAY_NAME"; then
-                    exit 0
-                fi
-                # If launch failed or was canceled, stay in the action dialog
-                continue
-            fi
-
-            # Handle Uninstall Action
-            if [ "$ACTION" = "$TXT_ACTION_UNINSTALL" ]; then
-                if [ "$APP_NAME" != "$PACOTE" ] && [ -n "$APP_NAME" ] && [ "$APP_NAME" != "-" ]; then
-                    MSG_CONFIRM=$(printf "$TXT_CONFIRM_MSG_APP" "$APP_NAME" "$PACOTE" "$VERSAO" "$FORMATO")
-                else
-                    MSG_CONFIRM=$(printf "$TXT_CONFIRM_MSG_PKG" "$PACOTE" "$VERSAO" "$FORMATO")
-                fi
-
-                # Add warning if it is a system application (indicated by red circle)
-                if [[ "$SISTEMA" == *"🔴"* ]]; then
-                    MSG_CONFIRM="$TXT_CONFIRM_SYSTEM_WARN\n\n$MSG_CONFIRM"
-                fi
-
-                zenity --question --title="$TXT_CONFIRM_TITLE" \
-                    --text="$MSG_CONFIRM" \
-                    --ok-label="$TXT_BTN_CONFIRM_YES" \
-                    --cancel-label="$TXT_BTN_CANCEL" \
-                    --default-cancel 2>/dev/null
-
-                # If user clicked "Cancel" on confirmation, return to action selection
-                if [ $? -ne 0 ]; then
-                    continue
-                fi
-
-                # Run uninstallation in terminal according to package format
-                case "$FORMATO" in
-                    Snap) gnome-terminal -- bash -c "sudo snap remove $PACOTE; echo ''; read -p '$TXT_TERMINAL_EXIT'" ;;
-                    Apt) gnome-terminal -- bash -c "sudo apt remove $PACOTE; echo ''; read -p '$TXT_TERMINAL_EXIT'" ;;
-                    Flatpak) gnome-terminal -- bash -c "sudo flatpak uninstall $PACOTE; echo ''; read -p '$TXT_TERMINAL_EXIT'" ;;
-                    Local)
-                        desktop_file=""
-                        for d in "$HOME/.local/share/applications/${PACOTE}.desktop" "/usr/local/share/applications/${PACOTE}.desktop"; do
-                            [ -f "$d" ] && desktop_file="$d" && break
-                        done
-                        gnome-terminal -- bash -c "
-                            echo \"$TXT_TERMINAL_UNINSTALL_TITLE\"
-                            echo \"$TXT_COL_APP: $DISPLAY_NAME\"
-                            desktop_path='$desktop_file'
-                            if [ -f \"\$desktop_path\" ]; then
-                                exec_line=\$(grep -m 1 '^Exec=' \"\$desktop_path\" 2>/dev/null | cut -d= -f2- | awk '{print \$1}')
-                                echo \"Desktop: \$desktop_path\"
-                                [ -n \"\$exec_line\" ] && echo \"Executable: \$exec_line\"
-                                echo ''
-                                read -p \"$TXT_TERMINAL_CONFIRM_DELETE\" confirm
-                                if [[ \"\$confirm\" =~ ^[yYsS] ]]; then
-                                    if [ -w \"\$(dirname \"\$desktop_path\")\" ]; then
-                                        rm -f \"\$desktop_path\"
-                                        echo \"$TXT_TERMINAL_FILE_REMOVED \$desktop_path\"
-                                    else
-                                        sudo rm -f \"\$desktop_path\"
-                                        echo \"$TXT_TERMINAL_FILE_REMOVED \$desktop_path\"
-                                    fi
-                                    if [ -n \"\$exec_line\" ] && [ -e \"\$exec_line\" ]; then
-                                        case \"\$exec_line\" in
-                                            \"$HOME\"/*)
-                                                app_bundle=\$(echo \"\$exec_line\" | grep -o '^.*/[^/]*\.app\b')
-                                                if [ -n \"\$app_bundle\" ] && [ -d \"\$app_bundle\" ]; then
-                                                    rm -rf \"\$app_bundle\"
-                                                    echo \"$TXT_TERMINAL_FILE_REMOVED \$app_bundle\"
-                                                fi
-                                                symlink=\"$HOME/.local/bin/\$(basename \"\$exec_line\")\"
-                                                if [ -L \"\$symlink\" ]; then
-                                                    rm -f \"\$symlink\"
-                                                    echo \"$TXT_TERMINAL_FILE_REMOVED \$symlink\"
-                                                fi
-                                                ;;
-                                        esac
-                                    fi
-                                    echo \"$TXT_TERMINAL_UNINSTALL_DONE\"
-                                else
-                                    echo \"$TXT_TERMINAL_UNINSTALL_CANCEL\"
-                                fi
-                            else
-                                echo \"File not found: \$desktop_path\"
-                            fi
-                            echo ''
-                            read -p \"$TXT_TERMINAL_EXIT\"
-                        "
-                        ;;
-                esac
-
-                exit 0
-            fi
-        done
-    done
-done
+if __name__ == "__main__":
+    main()

@@ -40,6 +40,10 @@ find "$BUILD_DIR/usr" -type f -exec chmod 644 {} +
 chmod 755 "$BUILD_DIR/usr/local/bin/"*
 chmod 755 usr/local/bin/*
 
+# Remove Python bytecode cache from build package
+find "$BUILD_DIR" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+find "$BUILD_DIR" -name "*.pyc" -delete 2>/dev/null || true
+
 echo "==> Generating package ${OUTPUT}..."
 dpkg-deb --root-owner-group --build "$BUILD_DIR" "${OUTPUT}"
 
