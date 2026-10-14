@@ -99,7 +99,7 @@ class WheresAppWindow(Adw.ApplicationWindow):
         self.search_timer_id: int | None = None
         self.current_search_id: int = 0
 
-        self.set_default_size(880, 620)
+        self.set_default_size(940, 640)
         self.set_icon_name("wheresapp")
 
         # Top-level toast overlay for user action feedback
@@ -163,7 +163,7 @@ class WheresAppWindow(Adw.ApplicationWindow):
         self.flow_box.set_column_spacing(12)
         self.flow_box.set_row_spacing(12)
         self.flow_box.set_min_children_per_line(1)
-        self.flow_box.set_max_children_per_line(4)
+        self.flow_box.set_max_children_per_line(2)
         self.flow_box.set_valign(Gtk.Align.START)
         self.flow_box.set_margin_start(16)
         self.flow_box.set_margin_end(16)
@@ -269,7 +269,7 @@ class WheresAppWindow(Adw.ApplicationWindow):
         """Construct a responsive card widget for a search result item."""
         card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         card_box.add_css_class("card")
-        card_box.set_size_request(260, -1)
+        card_box.set_size_request(430, 170)
 
         # Inner container with margins for padding
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
