@@ -353,6 +353,7 @@ class WheresAppWindow(Adw.ApplicationWindow):
 
         # Action buttons row
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_box.set_homogeneous(True)
         btn_box.set_margin_top(6)
 
         # Open button with text label
