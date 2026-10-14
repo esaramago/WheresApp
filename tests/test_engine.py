@@ -11,7 +11,7 @@ SHARE_DIR = os.path.join(REPO_ROOT, "usr", "share", "wheresapp")
 if SHARE_DIR not in sys.path:
     sys.path.insert(0, SHARE_DIR)
 
-from engine import parse_desktop_file, find_terminal_emulator, SearchEngine
+from engine import parse_desktop_file, find_terminal_emulator, SearchEngine, uninstall_application
 from i18n import I18n, get_active_locale
 
 
@@ -98,6 +98,17 @@ class TestPWAIcon(unittest.TestCase):
         # PWA with empty icon should return a valid Gtk Widget (Image or Box)
         icon_widget = create_app_icon("", app_format="PWA", pixel_size=48)
         self.assertTrue(isinstance(icon_widget, Gtk.Widget))
+
+
+class TestSystemProtection(unittest.TestCase):
+    """Test system package uninstall rejection."""
+
+    def test_system_package_uninstall_refused(self):
+        item = {"name": "Kernel", "package": "linux-image", "is_system": True, "format": "Apt"}
+        i18n = I18n("en")
+        success, msg = uninstall_application(item, i18n)
+        self.assertFalse(success)
+        self.assertIn("disabled", msg)
 
 
 if __name__ == "__main__":

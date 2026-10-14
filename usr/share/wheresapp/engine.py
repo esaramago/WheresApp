@@ -369,6 +369,9 @@ def launch_application(item: dict) -> tuple[bool, str]:
 
 def uninstall_application(item: dict, i18n) -> tuple[bool, str]:
     """Launch terminal emulator to perform uninstallation."""
+    if item.get("is_system"):
+        return False, i18n.get("system_uninstall_disabled")
+
     term_bin, style = find_terminal_emulator()
     if not term_bin:
         return False, i18n.get("no_terminal")

@@ -371,8 +371,14 @@ class WheresAppWindow(Adw.ApplicationWindow):
         btn_uninstall.set_child(btn_uninstall_box)
         btn_uninstall.add_css_class("destructive-action")
         btn_uninstall.set_hexpand(True)
-        btn_uninstall.set_tooltip_text(self.i18n.get("btn_uninstall"))
-        btn_uninstall.connect("clicked", lambda _b, it=item: self._on_uninstall_clicked(it))
+
+        if item.get("is_system"):
+            btn_uninstall.set_sensitive(False)
+            btn_uninstall.set_tooltip_text(self.i18n.get("system_uninstall_disabled"))
+        else:
+            btn_uninstall.set_tooltip_text(self.i18n.get("btn_uninstall"))
+            btn_uninstall.connect("clicked", lambda _b, it=item: self._on_uninstall_clicked(it))
+
         btn_box.append(btn_uninstall)
 
         inner.append(btn_box)
@@ -394,6 +400,8 @@ class WheresAppWindow(Adw.ApplicationWindow):
 
     def _on_uninstall_clicked(self, item: dict):
         """Display confirmation dialog before starting uninstallation."""
+        if item.get("is_system"):
+            return
         heading = self.i18n.get("confirm_title")
         if item.get("name") and item["name"] != item["package"] and item["name"] != "-":
             body = self.i18n.get(
