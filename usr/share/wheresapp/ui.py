@@ -1,40 +1,44 @@
 #!/usr/bin/env python3
-# GTK 4 / Libadwaita graphical interface for WheresApp
+# GTK 4 / Libadwaita graphical interface for WheresApp with Card Grid layout
 import os
 import threading
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk, Pango
 
 from engine import SearchEngine, launch_application, uninstall_application
 from i18n import I18n
 
 
-def create_app_icon(icon_name: str) -> Gtk.Widget:
-    """Create an icon image widget from an icon name or file path."""
+def create_app_icon(icon_name: str, pixel_size: int = 48) -> Gtk.Widget:
+    """Create an icon image widget with specified pixel size."""
     if not icon_name:
         img = Gtk.Image.new_from_icon_name("application-x-executable-symbolic")
-        img.set_icon_size(Gtk.IconSize.LARGE)
+        img.set_pixel_size(pixel_size)
         return img
 
     if os.path.isabs(icon_name) and os.path.isfile(icon_name):
-        return Gtk.Image.new_from_file(icon_name)
+        img = Gtk.Image.new_from_file(icon_name)
+        img.set_pixel_size(pixel_size)
+        return img
 
     # Check /usr/share/pixmaps for image files matching the icon name
     for ext in [".png", ".svg"]:
         candidate = os.path.join("/usr/share/pixmaps", icon_name + ext)
         if os.path.isfile(candidate):
-            return Gtk.Image.new_from_file(candidate)
+            img = Gtk.Image.new_from_file(candidate)
+            img.set_pixel_size(pixel_size)
+            return img
 
     img = Gtk.Image.new_from_icon_name(icon_name)
-    img.set_icon_size(Gtk.IconSize.LARGE)
+    img.set_pixel_size(pixel_size)
     return img
 
 
 class WheresAppWindow(Adw.ApplicationWindow):
-    """Main application window using Libadwaita widgets."""
+    """Main application window using Libadwaita widgets with Card Grid layout."""
 
     def __init__(self, app: Adw.Application, i18n: I18n, initial_query: str = ""):
         super().__init__(application=app, title=i18n.get("title"))
@@ -43,7 +47,7 @@ class WheresAppWindow(Adw.ApplicationWindow):
         self.search_timer_id: int | None = None
         self.current_search_id: int = 0
 
-        self.set_default_size(800, 600)
+        self.set_default_size(880, 620)
         self.set_icon_name("wheresapp")
 
         # Top-level toast overlay for user action feedback
@@ -78,7 +82,7 @@ class WheresAppWindow(Adw.ApplicationWindow):
 
         main_box.append(search_box)
 
-        # View stack: empty state, not found state, results list
+        # View stack: empty state, not found state, results card grid
         self.stack = Gtk.Stack()
         self.stack.set_vexpand(True)
         self.stack.set_hexpand(True)
@@ -97,18 +101,23 @@ class WheresAppWindow(Adw.ApplicationWindow):
         self.not_found_page.set_title(self.i18n.get("not_found_title"))
         self.stack.add_named(self.not_found_page, "not_found")
 
-        # 3. Results list inside a scrolled window
+        # 3. Results card grid inside a scrolled window
         self.scrolled_window = Gtk.ScrolledWindow()
         self.scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
-        self.list_box = Gtk.ListBox()
-        self.list_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.list_box.add_css_class("boxed-list")
-        self.list_box.set_margin_start(16)
-        self.list_box.set_margin_end(16)
-        self.list_box.set_margin_bottom(16)
+        self.flow_box = Gtk.FlowBox()
+        self.flow_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.flow_box.set_homogeneous(True)
+        self.flow_box.set_column_spacing(12)
+        self.flow_box.set_row_spacing(12)
+        self.flow_box.set_min_children_per_line(1)
+        self.flow_box.set_max_children_per_line(4)
+        self.flow_box.set_valign(Gtk.Align.START)
+        self.flow_box.set_margin_start(16)
+        self.flow_box.set_margin_end(16)
+        self.flow_box.set_margin_bottom(16)
 
-        self.scrolled_window.set_child(self.list_box)
+        self.scrolled_window.set_child(self.flow_box)
         self.stack.add_named(self.scrolled_window, "results")
 
         self.stack.set_visible_child_name("empty")
@@ -176,7 +185,7 @@ class WheresAppWindow(Adw.ApplicationWindow):
         GLib.idle_add(self._on_search_completed, results, query, search_id)
 
     def _on_search_completed(self, results: list[dict], query: str, search_id: int) -> bool:
-        """Update interface with search results on the main GTK thread."""
+        """Update interface with search result cards on the main GTK thread."""
         if search_id != self.current_search_id:
             return False
 
@@ -189,60 +198,110 @@ class WheresAppWindow(Adw.ApplicationWindow):
             self.stack.set_visible_child_name("not_found")
             return False
 
-        # Clear existing rows
+        # Clear existing cards
         while True:
-            row = self.list_box.get_first_child()
-            if row is None:
+            child = self.flow_box.get_first_child()
+            if child is None:
                 break
-            self.list_box.remove(row)
+            self.flow_box.remove(child)
 
-        # Build row for each search result
+        # Build card widget for each search result
         for item in results:
-            action_row = self._create_result_row(item)
-            self.list_box.append(action_row)
+            card_child = self._create_card_widget(item)
+            self.flow_box.append(card_child)
 
         self.stack.set_visible_child_name("results")
         return False
 
-    def _create_result_row(self, item: dict) -> Adw.ActionRow:
-        """Construct an action row widget for a search result item."""
-        row = Adw.ActionRow()
-        row.set_title(item["name"])
+    def _create_card_widget(self, item: dict) -> Gtk.FlowBoxChild:
+        """Construct a responsive card widget for a search result item."""
+        card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card_box.add_css_class("card")
+        card_box.set_size_request(220, -1)
 
-        # Subtitle: format, package name, version
-        ver_text = f"v{item['version']}" if item["version"] != "-" else ""
-        subtitle_parts = [item["format"], item["package"]]
-        if ver_text:
-            subtitle_parts.append(ver_text)
-        row.set_subtitle(" • ".join(subtitle_parts))
+        # Inner container with margins for padding
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        inner.set_margin_top(12)
+        inner.set_margin_bottom(12)
+        inner.set_margin_start(12)
+        inner.set_margin_end(12)
+        card_box.append(inner)
 
-        # Application icon prefix
-        icon_widget = create_app_icon(item.get("icon", ""))
-        row.add_prefix(icon_widget)
+        # Top row: application icon + badge column
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        icon_widget = create_app_icon(item.get("icon", ""), pixel_size=48)
+        header.append(icon_widget)
+
+        badge_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        badge_box.set_valign(Gtk.Align.CENTER)
+        badge_box.set_hexpand(True)
+        badge_box.set_halign(Gtk.Align.END)
+
+        # Format tag badge
+        fmt_label = Gtk.Label(label=item["format"])
+        fmt_label.add_css_class("caption")
+        fmt_label.add_css_class("accent")
+        badge_box.append(fmt_label)
 
         # System package warning badge
         if item.get("is_system"):
             sys_badge = Gtk.Label(label=self.i18n.get("system_badge"))
+            sys_badge.add_css_class("caption")
             sys_badge.add_css_class("error")
             sys_badge.set_tooltip_text(self.i18n.get("system_tooltip"))
-            row.add_suffix(sys_badge)
+            badge_box.append(sys_badge)
 
-        # Launch application button
-        btn_open = Gtk.Button.new_from_icon_name("media-playback-start-symbolic")
-        btn_open.add_css_class("flat")
-        btn_open.set_tooltip_text(self.i18n.get("btn_open"))
+        header.append(badge_box)
+        inner.append(header)
+
+        # Application Title
+        title_label = Gtk.Label(label=item["name"])
+        title_label.add_css_class("heading")
+        title_label.set_halign(Gtk.Align.START)
+        title_label.set_ellipsize(Pango.EllipsizeMode.END)
+        title_label.set_tooltip_text(item["name"])
+        inner.append(title_label)
+
+        # Package name and version
+        ver_text = f"v{item['version']}" if item["version"] != "-" else ""
+        sub_text = f"{item['package']} {ver_text}".strip()
+        pkg_label = Gtk.Label(label=sub_text)
+        pkg_label.add_css_class("dim-label")
+        pkg_label.add_css_class("caption")
+        pkg_label.set_halign(Gtk.Align.START)
+        pkg_label.set_ellipsize(Pango.EllipsizeMode.END)
+        pkg_label.set_tooltip_text(sub_text)
+        inner.append(pkg_label)
+
+        # Spacer to push action buttons to card bottom
+        spacer = Gtk.Box()
+        spacer.set_vexpand(True)
+        inner.append(spacer)
+
+        # Action buttons row
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_box.set_margin_top(6)
+
+        btn_open = Gtk.Button(label=self.i18n.get("btn_open"))
+        btn_open.set_icon_name("media-playback-start-symbolic")
+        btn_open.set_hexpand(True)
         btn_open.connect("clicked", lambda _b, it=item: self._on_launch_clicked(it))
-        row.add_suffix(btn_open)
+        btn_box.append(btn_open)
 
-        # Uninstall application button
-        btn_uninstall = Gtk.Button.new_from_icon_name("user-trash-symbolic")
-        btn_uninstall.add_css_class("flat")
+        btn_uninstall = Gtk.Button()
+        btn_uninstall.set_icon_name("user-trash-symbolic")
         btn_uninstall.add_css_class("destructive-action")
         btn_uninstall.set_tooltip_text(self.i18n.get("btn_uninstall"))
         btn_uninstall.connect("clicked", lambda _b, it=item: self._on_uninstall_clicked(it))
-        row.add_suffix(btn_uninstall)
+        btn_box.append(btn_uninstall)
 
-        return row
+        inner.append(btn_box)
+
+        # FlowBoxChild container
+        child = Gtk.FlowBoxChild()
+        child.set_child(card_box)
+        child.set_focusable(False)
+        return child
 
     def _on_launch_clicked(self, item: dict):
         """Handle application launch request."""
