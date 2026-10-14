@@ -116,8 +116,8 @@ class WheresAppWindow(Adw.ApplicationWindow):
 
         # Search bar container centered with Adw.Clamp
         search_clamp = Adw.Clamp()
-        search_clamp.set_maximum_size(872)
-        search_clamp.set_tightening_threshold(872)
+        search_clamp.set_maximum_size(920)
+        search_clamp.set_tightening_threshold(920)
 
         search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         search_box.set_margin_top(12)
@@ -163,8 +163,8 @@ class WheresAppWindow(Adw.ApplicationWindow):
         self.scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
         self.flow_clamp = Adw.Clamp()
-        self.flow_clamp.set_maximum_size(872)
-        self.flow_clamp.set_tightening_threshold(872)
+        self.flow_clamp.set_maximum_size(920)
+        self.flow_clamp.set_tightening_threshold(920)
 
         self.flow_box = Gtk.FlowBox()
         self.flow_box.set_selection_mode(Gtk.SelectionMode.NONE)
