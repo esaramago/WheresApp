@@ -1,6 +1,6 @@
 # WheresApp
 
-A lightweight Bash utility with a **Zenity** GUI to find, launch, and uninstall **APT**, **Snap**, **Flatpak**, **AppImage**, **PWA**, and **Local** applications on Ubuntu.
+A modern **GTK 4** and **Libadwaita** desktop utility to find, launch, and uninstall **APT**, **Snap**, **Flatpak**, **AppImage**, **PWA**, and **Local** applications on Ubuntu.
 
 ---
 
@@ -10,7 +10,7 @@ Before testing or building the package, ensure the required dependencies are ins
 
 ```bash
 sudo apt update
-sudo apt install zenity gnome-terminal dpkg
+sudo apt install python3 python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 dpkg
 ```
 
 > **Note:** To search and manage Snap or Flatpak packages, make sure `snapd` and `flatpak` are installed and configured on your system.
@@ -48,15 +48,15 @@ The application supports multiple languages and automatically detects your syste
 - **Portuguese (`pt-PT`)**: Default for Portuguese system locales (`pt_*`).
 - **English (`en-GB`)**: Default fallback for other locales.
 
-Translation files are stored in:
-- `usr/share/wheresapp/lang/pt-PT.sh`
-- `usr/share/wheresapp/lang/en-GB.sh`
+Translation modules are stored in:
+- `usr/share/wheresapp/i18n.py`
+- Shell fallback definitions: `usr/share/wheresapp/lang/`
 
 ---
 
 ## 📦 Building / Packaging the Debian Package (`.deb`)
 
-This application is written in Bash and does not require binary compilation, but it can be packaged into a `.deb` file for distribution and system-wide installation.
+This application is written in Python 3 (PyGObject) and does not require binary compilation, but it can be packaged into a `.deb` file for distribution and system-wide installation.
 
 ### Automated Build (Recommended)
 
