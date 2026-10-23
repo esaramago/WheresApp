@@ -75,38 +75,53 @@ def is_safe_user_app_dir(path: str) -> bool:
         if len(parts) < 2:
             return False
 
-        # Protect standard top-level user directories
+        # Protect standard top-level user directories and all their subdirectories
         forbidden_top_dirs = {
-            ".local",
             ".config",
             ".cache",
             ".ssh",
             ".gnupg",
             ".mozilla",
+            ".pki",
+            ".thunderbird",
             "Desktop",
             "Documents",
             "Downloads",
             "Music",
             "Pictures",
+            "Public",
+            "Templates",
             "Videos",
             "bin",
-            "Applications",
         }
-        if parts[0] in forbidden_top_dirs and len(parts) == 1:
+        if parts[0] in forbidden_top_dirs:
             return False
 
-        # Protect standard subdirectories
-        if parts[:2] in [
-            [".local", "share"],
-            [".local", "bin"],
-            [".local", "lib"],
-            [".config", "dconf"],
-        ] and len(parts) <= 2:
-            return False
-
-        # Never delete the applications directory itself
-        if parts[:3] == [".local", "share", "applications"] and len(parts) <= 3:
-            return False
+        # Inside .local, only allow dedicated app folders under .local/share/<app>
+        if parts[0] == ".local":
+            if len(parts) < 3 or parts[1] != "share":
+                return False
+            forbidden_local_share_dirs = {
+                "applications",
+                "backgrounds",
+                "color-schemes",
+                "dbus-1",
+                "flatpak",
+                "fonts",
+                "gnome-shell",
+                "gvfs-metadata",
+                "icons",
+                "keyrings",
+                "mime",
+                "nautilus",
+                "sounds",
+                "systemd",
+                "themes",
+                "Trash",
+                "wallpapers",
+            }
+            if parts[2] in forbidden_local_share_dirs:
+                return False
 
         return True
     except Exception:

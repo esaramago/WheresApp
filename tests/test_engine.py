@@ -296,6 +296,14 @@ class TestSafePathValidation(unittest.TestCase):
         self.assertFalse(is_safe_user_app_dir(os.path.join(home, ".local", "share")))
         self.assertFalse(is_safe_user_app_dir(os.path.join(home, ".local", "bin")))
         self.assertFalse(is_safe_user_app_dir(os.path.join(home, ".local", "share", "applications")))
+        # Nested subdirectories inside protected user folders
+        self.assertFalse(is_safe_user_app_dir(os.path.join(home, "Documents", "Work")))
+        self.assertFalse(is_safe_user_app_dir(os.path.join(home, "Downloads", "Folder")))
+        self.assertFalse(is_safe_user_app_dir(os.path.join(home, ".ssh", "keys")))
+        self.assertFalse(is_safe_user_app_dir(os.path.join(home, ".config", "myapp")))
+        self.assertFalse(is_safe_user_app_dir(os.path.join(home, ".local", "bin", "subdir")))
+        self.assertFalse(is_safe_user_app_dir(os.path.join(home, ".local", "share", "applications", "sub")))
+        self.assertFalse(is_safe_user_app_dir(os.path.join(home, ".local", "share", "icons")))
         # System directories outside home
         self.assertFalse(is_safe_user_app_dir("/etc"))
         self.assertFalse(is_safe_user_app_dir("/usr/bin"))
