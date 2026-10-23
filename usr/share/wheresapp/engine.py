@@ -131,9 +131,16 @@ def is_safe_user_app_dir(path: str) -> bool:
 def is_safe_system_desktop_path(path: str) -> bool:
     """Validate that desktop file path is inside allowed system application directories."""
     try:
-        real = os.path.realpath(path)
+        abs_path = os.path.abspath(path)
+        if os.path.islink(abs_path):
+            return False
+        real = os.path.realpath(abs_path)
         allowed_dirs = ["/usr/share/applications", "/usr/local/share/applications"]
-        return any(real.startswith(d + os.sep) for d in allowed_dirs) and real.endswith(".desktop")
+        return (
+            os.path.dirname(abs_path) in allowed_dirs
+            and any(real.startswith(d + os.sep) for d in allowed_dirs)
+            and real.endswith(".desktop")
+        )
     except Exception:
         return False
 
@@ -685,9 +692,10 @@ def uninstall_application(item: dict, i18n) -> tuple[bool, str]:
     if fmt in ["Local", "AppImage", "PWA"]:
         desktop_file = item.get("desktop_file", "")
         if desktop_file and os.path.isfile(desktop_file):
-            if os.access(desktop_file, os.W_OK) and os.access(os.path.dirname(desktop_file), os.W_OK):
+            is_link = os.path.islink(desktop_file)
+            if (is_link or os.access(desktop_file, os.W_OK)) and os.access(os.path.dirname(desktop_file), os.W_OK):
                 try:
-                    info = parse_desktop_file(desktop_file)
+                    info = parse_desktop_file(desktop_file) if not is_link else {}
                     exec_line = info.get("exec", "")
                     os.remove(desktop_file)
                     if exec_line:
@@ -711,7 +719,8 @@ def uninstall_application(item: dict, i18n) -> tuple[bool, str]:
                 except Exception as e:
                     return False, str(e)
             elif has_pkexec and is_safe_system_desktop_path(desktop_file):
-                cmd = ["pkexec", "rm", "-f", desktop_file]
+                real_desktop = os.path.realpath(desktop_file)
+                cmd = ["pkexec", "rm", "-f", "--", real_desktop]
                 try:
                     res = subprocess.run(cmd, capture_output=True, text=True)
                     if res.returncode == 0:

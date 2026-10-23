@@ -320,6 +320,12 @@ class TestSafePathValidation(unittest.TestCase):
         self.assertFalse(is_safe_system_desktop_path("/etc/shadow"))
         self.assertFalse(is_safe_system_desktop_path("/home/user/.local/share/applications/test.desktop"))
 
+        # Symlinks inside user directories pointing to system desktop files must be rejected
+        with tempfile.TemporaryDirectory() as tmpdir:
+            link_path = os.path.join(tmpdir, "symlinked.desktop")
+            os.symlink("/usr/share/applications/firefox.desktop", link_path)
+            self.assertFalse(is_safe_system_desktop_path(link_path))
+
     @patch("engine.shutil.rmtree")
     @patch("engine.os.remove")
     def test_uninstall_refuses_to_delete_home_folder(self, _mock_remove, mock_rmtree):
