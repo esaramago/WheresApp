@@ -8,7 +8,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 
-from engine import SearchEngine, launch_application, uninstall_application
+from engine import SearchEngine, launch_application, uninstall_application, open_in_store, can_open_in_store
 from i18n import I18n
 
 
@@ -378,6 +378,26 @@ class WheresAppWindow(Adw.ApplicationWindow):
         btn_open.connect("clicked", lambda _b, it=item: self._on_launch_clicked(it))
         btn_box.append(btn_open)
 
+        # Open in store button with icon and label
+        btn_store = Gtk.Button()
+        btn_store_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_store_box.set_halign(Gtk.Align.CENTER)
+        btn_store_box.append(Gtk.Image.new_from_icon_name("software-store-symbolic"))
+        store_lbl = Gtk.Label(label=self.i18n.get("btn_open_store"))
+        store_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        btn_store_box.append(store_lbl)
+        btn_store.set_child(btn_store_box)
+        btn_store.set_hexpand(True)
+
+        if can_open_in_store(item):
+            btn_store.set_tooltip_text(self.i18n.get("tooltip_open_store"))
+            btn_store.connect("clicked", lambda _b, it=item: self._on_open_store_clicked(it))
+        else:
+            btn_store.set_sensitive(False)
+            btn_store.set_tooltip_text(self.i18n.get("store_unavailable"))
+
+        btn_box.append(btn_store)
+
         # Uninstall button with icon and label
         btn_uninstall = Gtk.Button()
         btn_uninstall_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -413,6 +433,14 @@ class WheresAppWindow(Adw.ApplicationWindow):
             self.show_toast(self.i18n.get("launching_app", name=item["name"]))
         else:
             self.show_toast(self.i18n.get("launch_failed", name=item["name"]))
+
+    def _on_open_store_clicked(self, item: dict):
+        """Handle open in software store request."""
+        success, err = open_in_store(item)
+        if success:
+            self.show_toast(self.i18n.get("opening_store", name=item["name"]))
+        else:
+            self.show_toast(self.i18n.get("open_store_failed", name=item["name"]))
 
     def _on_uninstall_clicked(self, item: dict):
         """Display confirmation dialog before starting uninstallation."""

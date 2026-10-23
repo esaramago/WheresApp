@@ -547,6 +547,111 @@ def launch_application(item: dict) -> tuple[bool, str]:
     return False, f"Could not launch {name}"
 
 
+def _try_launch(cmd: list[str]) -> bool:
+    """Helper to safely execute command in a new session."""
+    try:
+        subprocess.Popen(cmd, start_new_session=True)
+        return True
+    except Exception:
+        return False
+
+
+def is_store_available() -> bool:
+    """Check if any supported software store application or handler is installed."""
+    store_binaries = [
+        "gnome-software",
+        "snap-store",
+        "ubuntu-app-center",
+        "plasma-discover",
+        "mintinstall",
+        "pamac-manager",
+        "io.elementary.appcenter",
+    ]
+    if any(shutil.which(cmd) for cmd in store_binaries):
+        return True
+    if shutil.which("gio") or shutil.which("xdg-open"):
+        return True
+    return False
+
+
+def can_open_in_store(item: dict) -> bool:
+    """Check whether the item format can be displayed in a software store."""
+    fmt = item.get("format")
+    if fmt not in ["Apt", "Snap", "Flatpak"]:
+        return False
+    return is_store_available()
+
+
+def open_in_store(item: dict) -> tuple[bool, str]:
+    """Open the application in its respective software store."""
+    if not can_open_in_store(item):
+        return False, "Application cannot be opened in a store"
+
+    fmt = item.get("format")
+    pkg = item.get("package", "")
+    desktop = item.get("desktop_file", "")
+    app_id = os.path.splitext(os.path.basename(desktop))[0] if desktop else ""
+
+    if fmt == "Snap":
+        # 1. Snap Store / Ubuntu App Center
+        if shutil.which("snap-store") and _try_launch(["snap-store", f"snap://{pkg}"]):
+            return True, ""
+        if shutil.which("ubuntu-app-center") and _try_launch(["ubuntu-app-center", f"snap://{pkg}"]):
+            return True, ""
+        # 2. GNOME Software
+        if shutil.which("gnome-software") and _try_launch(["gnome-software", f"--details={pkg}"]):
+            return True, ""
+        # 3. GIO / xdg-open URL handler
+        if shutil.which("gio") and _try_launch(["gio", "open", f"snap://{pkg}"]):
+            return True, ""
+        if shutil.which("xdg-open") and _try_launch(["xdg-open", f"snap://{pkg}"]):
+            return True, ""
+        # 4. KDE Discover
+        if shutil.which("plasma-discover") and _try_launch(["plasma-discover", "--application", pkg]):
+            return True, ""
+
+    elif fmt == "Flatpak":
+        # 1. GNOME Software
+        if shutil.which("gnome-software") and _try_launch(["gnome-software", f"--details={pkg}"]):
+            return True, ""
+        # 2. KDE Discover
+        if shutil.which("plasma-discover") and _try_launch(["plasma-discover", "--application", pkg]):
+            return True, ""
+        # 3. Linux Mint Software Manager
+        if shutil.which("mintinstall") and _try_launch(["mintinstall", pkg]):
+            return True, ""
+        # 4. Elementary AppCenter
+        if shutil.which("io.elementary.appcenter") and _try_launch(["io.elementary.appcenter", f"appstream://{pkg}"]):
+            return True, ""
+        # 5. GIO / xdg-open URL handler
+        if shutil.which("gio") and _try_launch(["gio", "open", f"appstream://{pkg}"]):
+            return True, ""
+        if shutil.which("xdg-open") and _try_launch(["xdg-open", f"appstream://{pkg}"]):
+            return True, ""
+
+    elif fmt == "Apt":
+        # 1. Linux Mint Software Manager
+        if shutil.which("mintinstall") and _try_launch(["mintinstall", pkg]):
+            return True, ""
+        # 2. GNOME Software
+        if shutil.which("gnome-software") and _try_launch(["gnome-software", f"--details-pkg={pkg}"]):
+            return True, ""
+        # 3. Snap Store / App Center
+        if shutil.which("snap-store") and _try_launch(["snap-store", f"snap://{pkg}"]):
+            return True, ""
+        # 4. KDE Discover
+        if shutil.which("plasma-discover") and _try_launch(["plasma-discover", "--application", pkg]):
+            return True, ""
+        # 5. GIO / xdg-open URL handler
+        stream_id = app_id if app_id else pkg
+        if shutil.which("gio") and _try_launch(["gio", "open", f"appstream://{stream_id}"]):
+            return True, ""
+        if shutil.which("xdg-open") and _try_launch(["xdg-open", f"apt://{pkg}"]):
+            return True, ""
+
+    return False, f"Could not open {pkg} in software store"
+
+
 def uninstall_application(item: dict, i18n) -> tuple[bool, str]:
     """Perform application uninstallation using pkexec (graphical auth) or terminal fallback."""
     fmt = item.get("format")

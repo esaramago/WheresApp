@@ -19,6 +19,9 @@ from engine import (
     SearchEngine,
     uninstall_application,
     launch_application,
+    open_in_store,
+    can_open_in_store,
+    is_store_available,
     is_safe_user_app_dir,
     is_safe_system_desktop_path,
     is_valid_package_name,
@@ -42,11 +45,15 @@ class TestI18n(unittest.TestCase):
         self.assertIn("test-pkg", text)
         self.assertIn("v1.0", text)
         self.assertIn("[Snap]", text)
+        self.assertEqual(i18n_en.get("btn_open_store"), "Store")
+        self.assertEqual(i18n_en.get("tooltip_open_store"), "Open in Store")
 
         i18n_pt = I18n("pt")
         text_pt = i18n_pt.get("confirm_msg_pkg", pkg="test-pkg", ver="1.0", fmt="Snap")
         self.assertIn("test-pkg", text_pt)
         self.assertIn("Desinstalar", i18n_pt.get("btn_confirm_yes"))
+        self.assertEqual(i18n_pt.get("btn_open_store"), "Loja")
+        self.assertEqual(i18n_pt.get("tooltip_open_store"), "Abrir na loja")
 
 
 class TestDesktopParser(unittest.TestCase):
@@ -105,8 +112,13 @@ class TestPWAIcon(unittest.TestCase):
     """Test PWA icon fallback creation."""
 
     def test_pwa_icon_fallback(self):
-        from ui import create_app_icon
-        from gi.repository import Gtk
+        try:
+            import gi
+            gi.require_version("Gtk", "4.0")
+            from gi.repository import Gtk
+            from ui import create_app_icon
+        except (ImportError, ValueError):
+            self.skipTest("GTK4 / PyGObject not available")
         # PWA with empty icon should return a valid Gtk Widget (Image or Box)
         icon_widget = create_app_icon("", app_format="PWA", pixel_size=48)
         self.assertTrue(isinstance(icon_widget, Gtk.Widget))
@@ -387,6 +399,65 @@ class TestAppStreamMetaInfo(unittest.TestCase):
         metainfo_path = os.path.join(REPO_ROOT, "usr", "share", "metainfo", "com.github.esaramago.wheresapp.metainfo.xml")
         res = subprocess.run([appstreamcli, "validate", "--no-net", metainfo_path], capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, f"appstreamcli validation failed:\n{res.stdout}\n{res.stderr}")
+
+
+class TestOpenInStore(unittest.TestCase):
+    """Test opening applications in their respective software store."""
+
+    @patch("engine.is_store_available", return_value=True)
+    def test_can_open_in_store_supported_formats(self, _mock_store):
+        self.assertTrue(can_open_in_store({"format": "Apt", "package": "gedit"}))
+        self.assertTrue(can_open_in_store({"format": "Snap", "package": "firefox"}))
+        self.assertTrue(can_open_in_store({"format": "Flatpak", "package": "org.gnome.Calculator"}))
+
+    @patch("engine.is_store_available", return_value=True)
+    def test_can_open_in_store_unsupported_formats(self, _mock_store):
+        self.assertFalse(can_open_in_store({"format": "Local", "package": "custom-app"}))
+        self.assertFalse(can_open_in_store({"format": "AppImage", "package": "obsidian"}))
+        self.assertFalse(can_open_in_store({"format": "PWA", "package": "notion"}))
+
+    @patch("engine.is_store_available", return_value=False)
+    def test_can_open_in_store_no_store(self, _mock_store):
+        self.assertFalse(can_open_in_store({"format": "Apt", "package": "gedit"}))
+        self.assertFalse(can_open_in_store({"format": "Snap", "package": "firefox"}))
+        self.assertFalse(can_open_in_store({"format": "Flatpak", "package": "org.gnome.Calculator"}))
+
+    @patch("engine.can_open_in_store", return_value=False)
+    def test_open_in_store_unsupported_fails(self, _mock_can_open):
+        item = {"format": "AppImage", "package": "test"}
+        success, err = open_in_store(item)
+        self.assertFalse(success)
+        self.assertIn("cannot be opened in a store", err)
+
+    @patch("engine.can_open_in_store", return_value=True)
+    @patch("engine.shutil.which")
+    @patch("engine.subprocess.Popen")
+    def test_open_in_store_snap(self, mock_popen, mock_which, _mock_can_open):
+        mock_which.side_effect = lambda cmd: "/snap/bin/snap-store" if cmd == "snap-store" else None
+        item = {"format": "Snap", "package": "firefox", "name": "Firefox"}
+        success, _ = open_in_store(item)
+        self.assertTrue(success)
+        mock_popen.assert_called_once_with(["snap-store", "snap://firefox"], start_new_session=True)
+
+    @patch("engine.can_open_in_store", return_value=True)
+    @patch("engine.shutil.which")
+    @patch("engine.subprocess.Popen")
+    def test_open_in_store_flatpak(self, mock_popen, mock_which, _mock_can_open):
+        mock_which.side_effect = lambda cmd: "/usr/bin/gnome-software" if cmd == "gnome-software" else None
+        item = {"format": "Flatpak", "package": "org.gnome.Calculator", "name": "Calculator"}
+        success, _ = open_in_store(item)
+        self.assertTrue(success)
+        mock_popen.assert_called_once_with(["gnome-software", "--details=org.gnome.Calculator"], start_new_session=True)
+
+    @patch("engine.can_open_in_store", return_value=True)
+    @patch("engine.shutil.which")
+    @patch("engine.subprocess.Popen")
+    def test_open_in_store_apt(self, mock_popen, mock_which, _mock_can_open):
+        mock_which.side_effect = lambda cmd: "/usr/bin/gnome-software" if cmd == "gnome-software" else None
+        item = {"format": "Apt", "package": "gedit", "name": "Text Editor", "desktop_file": "/usr/share/applications/org.gnome.gedit.desktop"}
+        success, _ = open_in_store(item)
+        self.assertTrue(success)
+        mock_popen.assert_called_once_with(["gnome-software", "--details-pkg=gedit"], start_new_session=True)
 
 
 if __name__ == "__main__":
