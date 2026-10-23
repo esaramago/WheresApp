@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1]
+
+### Security
+- Hardened `is_safe_user_app_dir` to block deletion of subdirectories at any depth inside standard personal and sensitive user directories (`Documents`, `Downloads`, `Desktop`, `.config`, `.ssh`, etc.) and restricted `.local` removal strictly to dedicated application folders under `.local/share/<app>`.
+- Hardened `is_safe_system_desktop_path` and `uninstall_application` to reject symlinks when validating system `.desktop` files, avoid parsing `Exec=` targets on symlinked desktop entries, and pass `--` with the resolved path to `pkexec rm -f`.
+
+---
+
 ## [1.3.0]
 
 ### Added
