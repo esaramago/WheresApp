@@ -88,6 +88,12 @@ This script sets the required file permissions, extracts the version from `DEBIA
 
 ---
 
+## 🤝 Contributing
+
+Contributions are welcome! Please check out the [Contributing Guidelines](CONTRIBUTING.md) for details on setting up your development environment, coding standards, testing, and submitting pull requests.
+
+---
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
